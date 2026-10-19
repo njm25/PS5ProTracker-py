@@ -45,6 +45,36 @@ Output goes to `runs/<timestamp>[-profile]/` in the checkout, wherever you run f
 - `summary.csv`: per target, the last clean interval, the interval and reason it tripped at, and p50/p95 latency.
 - `snapshots/<target>/`: page bodies for the first sample, any challenge, any signal change, the first unparsable page, and anything that would alert.
 
+## Web UI
+
+`ps5probe-web` (or `python -m ps5probe.web`) serves a small Flask UI on `0.0.0.0:8080`: targets and profiles, start a run (once / profile / picked targets) with live console output, stop it (sends Ctrl+C, so the summary is still written), and browse past runs, samples and snapshots. One run at a time; it shells out to `python -m ps5probe`, so behaviour matches the CLI. No auth, so keep it on a trusted LAN. `PS5_PROBE_WEB_HOST` / `PS5_PROBE_WEB_PORT` change the bind address, and `PS5_PROBE_WEB_RELOAD=1` (set in the service) restarts the server whenever a `ps5probe` source file changes; a run in progress carries on and is picked back up.
+
+```bash
+pip install -e ".[web]"
+sudo cp deploy/ps5probe-web.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now ps5probe-web
+```
+
+## Monitor (Phase 2)
+
+`python -m ps5probe --monitor` polls the targets in `monitor.targets` (name → seconds) forever and posts to a Discord webhook:
+
+- **Stock alert** (pings `discord.mention`, default `@here`): a target starts meeting the alert rule. Sent once per restock, even across restarts.
+- **Stock gone**: an alerting target stops meeting the rule.
+- **Signal changed** (`notify_changes`): the stock signal, seller or price changed without meeting the rule. Nothing has been seen in stock yet, so this is the safety net for a parser misreading a restock.
+- **Blocked / resumed** (`notify_blocks`): a challenge, or `max_consecutive_errors` failures in a row, pauses every target of that retailer for `cooldown_minutes`, doubling on each further block up to `max_cooldown_minutes`. A clean hour resets it.
+- **Started / stopped**, and a **still running** summary every `heartbeat_hours`.
+
+Put the webhook in `config.local.json` (`{"discord": {"webhook_url": "https://discord.com/api/webhooks/..."}}`) and check it with `python -m ps5probe --test-notify` or the web UI button. Without one, messages only go to the console.
+
+State (last signal, cooldowns, what already alerted) is in `runs/.monitor/state.json`, which the web UI shows. Notable samples and their snapshots go to `runs/monitor/`. The monitor re-executes itself when `ps5probe/*.py` or the config changes. Run it as a service:
+
+```bash
+sudo cp deploy/ps5probe-monitor.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now ps5probe-monitor
+journalctl -u ps5probe-monitor -f
+```
+
 ## How the ramp and backoff work
 
 Each target walks its `intervals_seconds` from slowest to fastest, taking `samples_per_step` samples at each step (±15% jitter). A target **trips** on the first challenge or block, or after `max_consecutive_errors` (3) plain failures in a row.
@@ -99,6 +129,9 @@ The browser targets use a fresh, throwaway Chromium profile, never your signed-i
 | `ps5probe/challenge.py` | bot-protection detection |
 | `ps5probe/alert.py` | the would-alert rule |
 | `ps5probe/log.py` | `samples.csv`, snapshots, console lines |
+| `ps5probe/monitor.py` | Phase 2: polls forever, cooldowns, Discord events |
+| `ps5probe/notify.py` | Discord webhook posts |
+| `ps5probe/web.py` | Flask UI: monitor status, start/stop runs, browse results |
 
 ## Tests
 

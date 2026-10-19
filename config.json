@@ -18,6 +18,23 @@
     "walmart_key_version": "1",
     "walmart_private_key_path": null
   },
+  "discord": {
+    "webhook_url": null,
+    "mention": "@here",
+    "notify_changes": true,
+    "notify_blocks": true
+  },
+  "monitor": {
+    "targets": {
+      "psdirect-api-bust": 10,
+      "walmart-page": 60,
+      "samsclub-page": 180
+    },
+    "jitter": 0.15,
+    "cooldown_minutes": 30,
+    "max_cooldown_minutes": 240,
+    "heartbeat_hours": 24
+  },
   "targets": [
     {
       "name": "bestbuy-api",

@@ -73,6 +73,30 @@ class Credentials:
 
 
 @dataclass
+class Discord:
+    # Channel webhook (Server settings > Integrations > Webhooks). Unset: notifications only go to the console.
+    webhook_url: str | None = None
+    # Prepended to stock alerts only, e.g. "@here" or "<@&role_id>". Other messages never ping.
+    mention: str = "@here"
+    # Also post when a stock signal changes but doesn't meet the alert rule (catches a parser misreading stock).
+    notify_changes: bool = True
+    # Also post blocks, cooldowns and recoveries.
+    notify_blocks: bool = True
+
+
+@dataclass
+class Monitor:
+    # Target name -> poll interval in seconds. Disabled targets still run if named here.
+    targets: dict[str, int] = field(default_factory=dict)
+    jitter: float = 0.15
+    # After a block, pause the whole retailer; each further block in a row doubles it, up to the max.
+    cooldown_minutes: int = 30
+    max_cooldown_minutes: int = 240
+    # A "still running" summary post; 0 turns it off.
+    heartbeat_hours: int = 24
+
+
+@dataclass
 class Options:
     output_dir: str = "runs"
     user_agent: str = (
@@ -86,6 +110,8 @@ class Options:
     max_consecutive_errors: int = 3
     max_run_minutes: int | None = None
     credentials: Credentials = field(default_factory=Credentials)
+    discord: Discord = field(default_factory=Discord)
+    monitor: Monitor = field(default_factory=Monitor)
     targets: list[Target] = field(default_factory=list)
     # Named runs (--profile): which targets to run and what to override on them. Kept as raw dicts.
     profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -108,9 +134,17 @@ def from_dict(raw: dict[str, Any]) -> Options:
     default_ramp = raw.pop("default_ramp", None) or {}
     targets = [_target(t, default_ramp) for t in raw.pop("targets", None) or []]
     credentials = _build(Credentials, raw.pop("credentials", None) or {}, "credentials")
+    discord = _build(Discord, raw.pop("discord", None) or {}, "discord")
+    monitor = _build(Monitor, raw.pop("monitor", None) or {}, "monitor")
     if "max_price" in raw:
         raw["max_price"] = Decimal(str(raw["max_price"]))
-    return _build(Options, {**raw, "credentials": credentials, "targets": targets}, "config")
+    options = _build(
+        Options, {**raw, "credentials": credentials, "discord": discord, "monitor": monitor, "targets": targets}, "config"
+    )
+    unknown = [n for n in options.monitor.targets if _find({t.name: t for t in targets}, n) is None]
+    if unknown:
+        raise ConfigError(f"monitor.targets names unknown target(s) {', '.join(unknown)}")
+    return options
 
 
 def apply_profile(options: Options, name: str) -> dict[str, Any]:

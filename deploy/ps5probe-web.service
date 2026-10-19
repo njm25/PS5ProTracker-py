@@ -1,0 +1,17 @@
+[Unit]
+Description=ps5probe web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=nico
+WorkingDirectory=/home/nico/PS5ProTracker-py
+ExecStart=/home/nico/PS5ProTracker-py/.venv/bin/python -m ps5probe.web
+Environment=PS5_PROBE_WEB_PORT=8080
+# Restart the server whenever a ps5probe source file changes. A probe run survives these reloads,
+# but stopping or restarting the service itself also stops it.
+Environment=PS5_PROBE_WEB_RELOAD=1
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

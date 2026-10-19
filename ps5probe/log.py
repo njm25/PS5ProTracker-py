@@ -47,12 +47,15 @@ def _millis(dt: datetime) -> str:
 class ProbeLog:
     """Appends one CSV row per sample and keeps body snapshots for anything worth re-reading."""
 
-    def __init__(self, run_dir: Path):
+    def __init__(self, run_dir: Path, append: bool = False):
         self.run_dir = run_dir
         run_dir.mkdir(parents=True, exist_ok=True)
-        self._file = open(run_dir / "samples.csv", "w", newline="", encoding="utf-8")
+        path = run_dir / "samples.csv"
+        new = not append or not path.exists() or path.stat().st_size == 0
+        self._file = open(path, "w" if new else "a", newline="", encoding="utf-8")
         self._csv = csv.writer(self._file, lineterminator="\n")
-        self._csv.writerow(COLUMNS)
+        if new:
+            self._csv.writerow(COLUMNS)
 
     def write(self, r: SampleRecord) -> None:
         f, p = r.fetch, r.parse

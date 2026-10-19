@@ -14,9 +14,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+web = ["flask>=3"]
 
 [project.scripts]
 ps5probe = "ps5probe.cli:main"
+ps5probe-web = "ps5probe.web:main"
 
 [build-system]
 requires = ["setuptools>=69"]

@@ -40,6 +40,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         _list(options)
         return 0
+    if args.test_notify:
+        from .notify import Notifier
+
+        return 0 if Notifier(options.discord).send_sync("Test notification from ps5probe.") else 1
+    if args.monitor:
+        from .monitor import main as monitor_main
+
+        return monitor_main(options)
 
     only = [s.strip() for s in args.only.split(",") if s.strip()] if args.only else None
     selected = only if only is not None else list(profile.get("targets") or {}) if profile else None
@@ -67,6 +75,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--only", metavar="NAMES", help="comma-separated target names")
     p.add_argument("--profile", metavar="NAME", help="named run from config.json profiles")
     p.add_argument("--headed", action="store_true", help="visible Chromium for browser targets")
+    p.add_argument("--monitor", action="store_true", help="poll monitor.targets forever and send notifications")
+    p.add_argument("--test-notify", action="store_true", help="post a test message to the Discord webhook")
     return p.parse_args(argv)
 
 
@@ -105,7 +115,7 @@ async def _run(options: Options, targets: list[Target], run_dir: Path, once: boo
             if parse is None:
                 summaries.append(TargetSummary(t, skipped=f"unknown parser '{t.parser}'"))
                 continue
-            fetch, skip = _build_fetch(t, options, host, closers)
+            fetch, skip = build_fetch(t, options, host, closers)
             if fetch is None:
                 say(t.name, f"skipped: {skip}")
                 summaries.append(TargetSummary(t, skipped=skip))
@@ -130,7 +140,7 @@ async def _run(options: Options, targets: list[Target], run_dir: Path, once: boo
         _write_summary(run_dir, summaries)
 
 
-def _build_fetch(
+def build_fetch(
     t: Target, options: Options, host: BrowserHost, closers: list[Callable[[], Awaitable[None]]]
 ) -> tuple[Fetch | None, str | None]:
     """The fetch function for a target, or None and the reason it's skipped."""
