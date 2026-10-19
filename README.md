@@ -27,6 +27,8 @@ python -m ps5probe --headed             # visible Chromium for browser targets
 python -m ps5probe                      # full ramp, all enabled targets
 python -m ps5probe --profile fast       # push below the measured clean floors
 python -m ps5probe --profile headed     # Best Buy / GameStop / Newegg in visible Chromium
+python -m ps5probe --monitor            # poll monitor.targets forever, post to Discord
+python -m ps5probe --test-notify        # post a test message to the Discord webhook
 ```
 
 `ps5probe` works too once the package is installed. Ctrl+C stops cleanly and still writes the summary. `max_run_minutes` (default 180) caps a full run.
