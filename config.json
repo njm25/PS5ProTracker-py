@@ -1,0 +1,172 @@
+{
+  "output_dir": "runs",
+  "headless": true,
+  "request_timeout_seconds": 20,
+  "max_price": 899.99,
+  "max_consecutive_errors": 3,
+  "max_run_minutes": 180,
+  "default_ramp": {
+    "intervals_seconds": [120, 60, 30, 15],
+    "samples_per_step": 10,
+    "jitter": 0.15,
+    "on_challenge": "stop",
+    "cooldown_minutes": 60
+  },
+  "credentials": {
+    "bestbuy_api_key": null,
+    "walmart_consumer_id": null,
+    "walmart_key_version": "1",
+    "walmart_private_key_path": null
+  },
+  "targets": [
+    {
+      "name": "bestbuy-api",
+      "retailer": "Best Buy",
+      "method": "bestbuy_api",
+      "url": "https://api.bestbuy.com/v1/products/6601524.json?apiKey={bestbuy_api_key}&show=sku,name,salePrice,onlineAvailability,orderable,condition,inStoreAvailability",
+      "product_url": "https://www.bestbuy.com/product/playstation-5-pro-console/6601524",
+      "parser": "bestbuy-api",
+      "ramp": { "intervals_seconds": [60, 30, 10, 5, 2], "samples_per_step": 15 }
+    },
+    {
+      "name": "bestbuy-page",
+      "retailer": "Best Buy",
+      "method": "browser",
+      "url": "https://www.bestbuy.com/product/playstation-5-pro-console/6601524",
+      "parser": "bestbuy-page",
+      "params": { "sku": "6601524" },
+      "allowed_sellers": ["Best Buy"],
+      "wait_for_selector": "button[data-testid$='-6601524']",
+      "settle_ms": 8000,
+      "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 8 }
+    },
+    {
+      "name": "amazon-page",
+      "retailer": "Amazon",
+      "method": "browser",
+      "enabled": false,
+      "url": "https://www.amazon.com/dp/B0DGY63Z2H",
+      "parser": "amazon-page",
+      "allowed_sellers": ["Amazon.com", "Amazon"],
+      "wait_for_selector": "#availability, #add-to-cart-button, #outOfStock",
+      "settle_ms": 6000,
+      "ramp": { "intervals_seconds": [600, 300], "samples_per_step": 4 }
+    },
+    {
+      "name": "walmart-api",
+      "retailer": "Walmart",
+      "method": "walmart_affiliate_api",
+      "url": "https://developer.api.walmart.com/api-proxy/service/affil/product/v2/items/11839818124",
+      "product_url": "https://www.walmart.com/ip/PLAYSTATION-PS5-PRO-CONSOLE/11839818124",
+      "parser": "walmart-affiliate-api",
+      "allowed_sellers": ["Walmart.com"],
+      "ramp": { "intervals_seconds": [60, 30, 10, 5], "samples_per_step": 15 }
+    },
+    {
+      "name": "walmart-page",
+      "retailer": "Walmart",
+      "method": "http",
+      "url": "https://www.walmart.com/ip/PLAYSTATION-PS5-PRO-CONSOLE/11839818124",
+      "parser": "walmart-nextdata",
+      "params": { "item_id": "11839818124" },
+      "allowed_sellers": ["Walmart.com", "INTERNAL"],
+      "ramp": { "intervals_seconds": [300, 120, 60], "samples_per_step": 6 }
+    },
+    {
+      "name": "psdirect-api",
+      "retailer": "PlayStation Direct",
+      "method": "http",
+      "url": "https://api.direct.playstation.com/commercewebservices/ps-direct-us/users/anonymous/products/productList?fields=BASIC&productCodes=1000050928",
+      "product_url": "https://direct.playstation.com/en-us/buy-consoles/playstation5-pro-console-2-tb",
+      "parser": "psdirect-api",
+      "allowed_sellers": ["PlayStation Direct"],
+      "ramp": { "intervals_seconds": [60, 30, 15, 5], "samples_per_step": 12 }
+    },
+    {
+      "name": "psdirect-api-bust",
+      "retailer": "PlayStation Direct",
+      "method": "http",
+      "enabled": false,
+      "url": "https://api.direct.playstation.com/commercewebservices/ps-direct-us/users/anonymous/products/productList?fields=BASIC&productCodes=1000050928&_={nonce}",
+      "product_url": "https://direct.playstation.com/en-us/buy-consoles/playstation5-pro-console-2-tb",
+      "parser": "psdirect-api",
+      "allowed_sellers": ["PlayStation Direct"],
+      "headers": { "Cache-Control": "no-cache", "Pragma": "no-cache" },
+      "ramp": { "intervals_seconds": [5], "samples_per_step": 72 }
+    },
+    {
+      "name": "psdirect-page",
+      "retailer": "PlayStation Direct",
+      "method": "http",
+      "url": "https://direct.playstation.com/en-us/buy-consoles/playstation5-pro-console-2-tb",
+      "parser": "schema-offer",
+      "params": { "default_seller": "PlayStation Direct" },
+      "allowed_sellers": ["PlayStation Direct", "Sony Interactive Entertainment", "PlayStation"],
+      "ramp": { "intervals_seconds": [120, 60, 30] }
+    },
+    {
+      "name": "samsclub-page",
+      "retailer": "Sam's Club",
+      "method": "http",
+      "url": "https://www.samsclub.com/ip/PlayStation-5-Pro-Console-2-TB/18717057017",
+      "parser": "walmart-nextdata",
+      "params": { "item_id": "18717057017" },
+      "allowed_sellers": ["Sam's Club", "INTERNAL"]
+    },
+    {
+      "name": "target-page",
+      "retailer": "Target",
+      "method": "browser",
+      "url": "https://www.target.com/p/playstation-5-pro/-/A-93620188",
+      "parser": "target-page",
+      "allowed_sellers": ["Target"],
+      "wait_for_selector": "[data-test='product-price'], button[data-test='shipItButton'], button[data-test='orderPickupButton']",
+      "settle_ms": 8000,
+      "ramp": { "intervals_seconds": [600, 300, 120], "samples_per_step": 6 }
+    },
+    {
+      "name": "gamestop-page",
+      "retailer": "GameStop",
+      "method": "browser",
+      "url": "https://www.gamestop.com/consoles-hardware/playstation-5/consoles/products/sony-playstation-5-pro-console/20015604.html",
+      "parser": "gamestop-page",
+      "params": { "sku": "416188", "pid": "20015604" },
+      "allowed_sellers": ["GameStop"],
+      "wait_for_selector": "button.add-to-cart",
+      "settle_ms": 8000,
+      "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 8 }
+    },
+    {
+      "name": "newegg-page",
+      "retailer": "Newegg",
+      "method": "browser",
+      "url": "https://www.newegg.com/p/N82E16868110346",
+      "parser": "newegg-page",
+      "allowed_sellers": ["Newegg"],
+      "settle_ms": 3000,
+      "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 8 }
+    }
+  ],
+  "profiles": {
+    "fast": {
+      "max_run_minutes": 120,
+      "targets": {
+        "psdirect-api": { "ramp": { "intervals_seconds": [5, 3, 2, 1], "samples_per_step": 30 } },
+        "psdirect-api-bust": { "ramp": { "intervals_seconds": [5], "samples_per_step": 72 } },
+        "psdirect-page": { "ramp": { "intervals_seconds": [30, 15, 10, 5], "samples_per_step": 10 } },
+        "samsclub-page": { "ramp": { "intervals_seconds": [15, 10, 5, 3], "samples_per_step": 10 } },
+        "walmart-page": { "ramp": { "intervals_seconds": [60, 30, 15], "samples_per_step": 8 } },
+        "target-page": { "ramp": { "intervals_seconds": [120, 60, 30], "samples_per_step": 6 } }
+      }
+    },
+    "headed": {
+      "headless": false,
+      "max_run_minutes": 180,
+      "targets": {
+        "bestbuy-page": { "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 6 } },
+        "gamestop-page": { "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 6 } },
+        "newegg-page": { "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 6 } }
+      }
+    }
+  }
+}
