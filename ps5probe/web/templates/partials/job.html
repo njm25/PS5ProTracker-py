@@ -1,0 +1,12 @@
+<div class="panel-head">
+  <h2>Console</h2>
+  <div class="form-actions">
+    {% if job.running %}<span class="pill waiting">running</span>
+    <button class="btn sm danger" hx-post="{{ url_for('runs.stop') }}" hx-swap="none">Stop</button>
+    {% elif job.started %}<span class="pill out">finished{{ ' (exit ' ~ job.exit_code ~ ')' if job.exit_code is not none }}</span>
+    {% else %}<span class="pill out">idle</span>{% endif %}
+  </div>
+</div>
+{% if job.args %}<div class="panel-pad mono dim" style="padding-bottom:0">ps5probe {{ job.args|join(' ') }}</div>{% endif %}
+<pre class="console" id="console" style="margin-top:12px">{{ job.output or 'No run started from the web UI yet.' }}</pre>
+<script>(() => { const c = document.getElementById("console"); c.scrollTop = c.scrollHeight; })();</script>

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{{ t.retailer }} · ps5probe{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a href="{{ url_for('dashboard.index') }}" class="dim">← Dashboard</a>
+    <h1 style="margin-top:6px">{{ t.retailer }}</h1>
+    <p class="mono">{{ t.name }} · <a href="{{ t.url }}" target="_blank" rel="noopener">product page ↗</a></p>
+  </div>
+</div>
+
+<div id="live" hx-get="{{ url_for('retailers.live', name=t.name) }}" hx-trigger="monitor from:body" hx-swap="innerHTML">
+  {% include "partials/retailer_live.html" %}
+</div>
+
+<section class="panel section">
+  <div class="panel-head">
+    <h2>History</h2>
+    <div class="range" id="range">
+      <button data-h="6">6h</button><button data-h="24" class="on">24h</button><button data-h="168">7d</button>
+    </div>
+  </div>
+  <div class="panel-pad">
+    <div class="chart-legend" style="margin-bottom:8px">
+      <span><i style="background:#2c6b48"></i>clean</span><span><i style="background:var(--red)"></i>failed / blocked</span>
+      <span><i style="background:var(--green)"></i>in stock</span><span><i style="background:var(--surface-3)"></i>no checks</span>
+    </div>
+    <div class="timeline" id="timeline"></div>
+    <div class="chart" id="chart" style="margin-top:14px"></div>
+  </div>
+</section>
+
+<div class="grid two section">
+  <section class="panel">
+    <div class="panel-head"><h2>Saved pages</h2><span class="muted">what the parser saw</span></div>
+    {% if snapshots %}
+    <ul class="snap-list" id="snaps">
+      {% for s in snapshots %}
+      <li><button data-src="{{ url_for('retailers.snapshot', name=t.name, file=s.name) }}" class="{{ 'on' if loop.first }}">
+        <span>{{ s.reason }}</span><span class="muted">{{ s.ts|clock(true) }} · {{ (s.size / 1024)|round|int }} KB</span>
+      </button></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="feed-empty">No saved pages yet. One is saved on the first check, and on every change, block or alert.</div>{% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Setup</h2><a href="{{ url_for('settings.index') }}">Edit →</a></div>
+    <div class="panel-pad">
+      <dl class="kv">
+        <dt>Interval</dt><dd>every {{ t.interval|duration }}</dd>
+        <dt>Method</dt><dd class="mono">{{ target.method if target else '?' }}</dd>
+        <dt>Parser</dt><dd class="mono">{{ target.parser if target else '?' }}</dd>
+        <dt>Sellers</dt><dd>{{ target.allowed_sellers|join(', ') if target and target.allowed_sellers else 'any' }}</dd>
+        <dt>Max price</dt><dd>{{ max_price|money }} (alerts at or under)</dd>
+        <dt>URL</dt><dd class="mono" style="font-size:11.5px">{{ target.url if target else '' }}</dd>
+        {% set siblings = m.targets|selectattr("retailer", "equalto", t.retailer)|rejectattr("name", "equalto", t.name)|list %}
+        {% if siblings %}<dt>Shares blocks with</dt><dd>{% for s in siblings %}<a href="{{ url_for('retailers.detail', name=s.name) }}">{{ s.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+      </dl>
+    </div>
+  </section>
+</div>
+
+{% if snapshots %}
+<section class="panel section">
+  <div class="panel-head"><h2>Preview</h2><span class="muted">scripts and outside requests blocked</span></div>
+  <iframe class="snap-frame" id="snapframe" sandbox src="{{ url_for('retailers.snapshot', name=t.name, file=snapshots[0].name) }}"></iframe>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const target = {{ t.name|tojson }};
+  const chart = document.getElementById("chart"), line = document.getElementById("timeline");
+  let hours = 24;
+
+  async function load() {
+    const res = await fetch(`/api/history/${encodeURIComponent(target)}?hours=${hours}`);
+    const d = await res.json();
+    // Status strip: 120 buckets across the range, worst state wins.
+    const n = 120, end = Date.now() / 1000, start = end - hours * 3600, size = (end - start) / n;
+    const buckets = new Array(n).fill(null);
+    d.t.forEach((ts, i) => {
+      const b = Math.min(n - 1, Math.floor((ts - start) / size));
+      if (b < 0) return;
+      const state = d.in_stock[i] === true ? 3 : d.in_stock[i] === null ? 2 : 1;
+      buckets[b] = Math.max(buckets[b] || 0, state);
+    });
+    const cls = { 1: "ok", 2: "bad", 3: "stock" };
+    line.innerHTML = buckets.map((s, i) => {
+      const t = new Date((start + i * size) * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      return `<i class="${s ? cls[s] : "gap"}" style="flex:1" title="${t}"></i>`;
+    }).join("");
+    latencyChart(chart, target, hours);
+  }
+  document.getElementById("range").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    hours = Number(b.dataset.h);
+    document.querySelectorAll("#range button").forEach((x) => x.classList.toggle("on", x === b));
+    load();
+  });
+  load();
+  // Charts don't need to redraw every few seconds: once a minute is plenty.
+  setInterval(load, 60000);
+
+  const snaps = document.getElementById("snaps"), frame = document.getElementById("snapframe");
+  if (snaps) snaps.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    frame.src = b.dataset.src;
+    snaps.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    frame.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+})();
+</script>
+{% endblock %}

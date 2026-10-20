@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Activity · ps5probe{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Activity</h1>
+    <p>Everything the monitor did that's worth knowing, newest first. Discord badges show what was posted.</p>
+  </div>
+</div>
+
+<div class="filters">
+  <div class="chips">
+    <a class="chip {{ 'on' if not kind }}" href="{{ url_for('activity.index', target=target) }}">All</a>
+    {% for k in kinds %}
+    <a class="chip {{ 'on' if kind == k }}" href="{{ url_for('activity.index', kind=k, target=target) }}">{{ k }}</a>
+    {% endfor %}
+  </div>
+  <select onchange="location = this.value" aria-label="target">
+    <option value="{{ url_for('activity.index', kind=kind) }}">All targets</option>
+    {% for t in targets %}
+    <option value="{{ url_for('activity.index', kind=kind, target=t) }}" {{ 'selected' if t == target }}>{{ t }}</option>
+    {% endfor %}
+  </select>
+</div>
+
+<section class="panel" id="list"
+  {% if not before %}hx-get="{{ url_for('activity.live', kind=kind, target=target) }}" hx-trigger="monitor from:body" hx-swap="innerHTML"{% endif %}>
+  {% include "partials/activity_list.html" %}
+</section>
+{% endblock %}

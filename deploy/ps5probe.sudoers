@@ -1,0 +1,6 @@
+# Lets the web UI (running as nico) start/stop/restart its own services, and nothing else.
+# Install: sudo install -m 440 deploy/ps5probe.sudoers /etc/sudoers.d/ps5probe && sudo visudo -c
+nico ALL=(root) NOPASSWD: /usr/bin/systemctl --no-block start ps5probe-monitor, \
+                          /usr/bin/systemctl --no-block stop ps5probe-monitor, \
+                          /usr/bin/systemctl --no-block restart ps5probe-monitor, \
+                          /usr/bin/systemctl --no-block restart ps5probe-web

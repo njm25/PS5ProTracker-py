@@ -1,0 +1,10 @@
+{% import "partials/macros.html" as ui %}
+<ul class="feed">
+  {% for e in events %}{{ ui.event_row(e) }}{% else %}<li class="feed-empty" style="display:block">No events{{ ' of this kind' if kind }}.</li>{% endfor %}
+</ul>
+{% if more %}
+<div class="panel-pad" style="border-top:1px solid var(--border)">
+  <a class="btn" href="{{ url_for('activity.index', kind=kind, target=target, before=more) }}">Older →</a>
+  {% if before %}<a class="btn ghost" href="{{ url_for('activity.index', kind=kind, target=target) }}">Newest</a>{% endif %}
+</div>
+{% endif %}

@@ -4,7 +4,10 @@ import pytest
 
 from ps5probe import config
 from ps5probe.models import FetchResult
-from ps5probe.monitor import Monitor
+import json
+import time
+
+from ps5probe.monitor import PAUSED_FOREVER, Monitor
 from ps5probe.parsers import PARSERS
 
 
@@ -90,3 +93,66 @@ def test_restart_does_not_realert_while_still_in_stock(monitor, tmp_path):
     sample(again, 200, stock_json("inStock"))
     again.log.close()
     assert again.notifier.sent == []
+
+
+def events(m):
+    path = m.dir / "events.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def test_events_and_check_history_are_recorded(monitor):
+    sample(monitor, 200, stock_json("outOfStock"))
+    monitor._record_check(monitor.states["ps"])
+    sample(monitor, 200, stock_json("inStock"))
+    assert [e["kind"] for e in events(monitor)] == ["alert"]
+    assert events(monitor)[0]["delivered"] is None  # no webhook configured
+    rows = next(monitor.dir.glob("checks-*.csv")).read_text().splitlines()
+    assert rows[0].startswith("ts,target") and ",ps,200,5,0," in rows[1]
+
+
+def test_a_lone_timeout_is_a_failure_not_a_block(monitor):
+    async def timeout():
+        return FetchResult(None, 20000, "", "https://shop.example/p", timed_out=True, error="timeout")
+
+    t = monitor.targets[0]
+    asyncio.run(monitor._sample(t, monitor.states["ps"], timeout, PARSERS[t.parser]))
+    assert monitor.retailers["PS Direct"].strikes == 0
+    assert monitor.states["ps"].consecutive_errors == 1
+
+
+def test_flapping_cross_check_is_not_a_change(monitor):
+    from ps5probe.models import ParseResult
+    from ps5probe.monitor import signal_key
+
+    a = ParseResult(True, False, "jsonld=OutOfStock; atc='Select Condition' (ignored)", "GameStop")
+    b = ParseResult(True, False, "jsonld=OutOfStock; atc='Not Available' [disabled]", "GameStop")
+    c = ParseResult(True, False, "jsonld=PreOrder; atc='Not Available' [disabled]", "GameStop")
+    assert signal_key(a) == signal_key(b) != signal_key(c)
+
+
+def test_commands(monitor):
+    st = monitor.states["ps"]
+    monitor._command({"cmd": "pause", "target": "ps"})
+    assert st.paused_until == PAUSED_FOREVER
+    monitor._command({"cmd": "pause", "target": "ps", "minutes": 5})
+    assert 290 < st.paused_until - time.time() <= 300
+    monitor._command({"cmd": "resume", "target": "ps"})
+    assert st.paused_until == 0
+    monitor._command({"cmd": "check_now", "target": "ps"})
+    assert "ps" in monitor._force
+
+    r = monitor.retailers["PS Direct"]
+    r.cooldown_until, r.strikes = time.time() + 600, 2
+    monitor._command({"cmd": "clear_cooldown", "retailer": "PS Direct"})
+    assert (r.cooldown_until, r.strikes) == (0, 0)
+    assert [e["kind"] for e in events(monitor)] == ["command"] * 5
+    with pytest.raises(KeyError):
+        monitor._command({"cmd": "explode", "target": "ps"})
+
+
+def test_zero_interval_turns_a_monitor_target_off():
+    options = config.from_dict({
+        "monitor": {"targets": {"a": 10, "b": 0}},
+        "targets": [{"name": "a", "parser": "psdirect-api"}, {"name": "b", "parser": "psdirect-api"}],
+    })
+    assert options.monitor.targets == {"a": 10}

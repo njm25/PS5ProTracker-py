@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} · ps5probe{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a href="{{ url_for('runs.index') }}" class="dim">← Probe runs</a>
+    <h1 class="mono" style="margin-top:6px;font-size:20px">{{ name }}</h1>
+    <p>
+      <a href="{{ url_for('runs.file', name=name, rel='samples.csv') }}">samples.csv</a>
+      {% if summary %} · <a href="{{ url_for('runs.file', name=name, rel='summary.csv') }}">summary.csv</a>{% endif %}
+      · <a href="{{ url_for('runs.file', name=name, rel='targets.json') }}">targets.json</a>
+    </p>
+  </div>
+</div>
+
+{% if summary %}
+<section class="panel">
+  <div class="panel-head"><h2>Summary</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Target</th><th class="num">Samples</th><th class="num">Parsed</th><th class="num">Clean at</th><th class="num">Tripped at</th><th>Reason</th><th class="num">p50</th><th class="num">p95</th></tr></thead>
+      <tbody>
+      {% for r in summary %}
+      <tr>
+        <td>{{ r.target }}<div class="muted mono" style="font-size:11px">{{ r.method }}</div></td>
+        <td class="num">{{ r.samples }}</td><td class="num">{{ r.parsed }}</td>
+        <td class="num cell-good">{{ r.last_clean_interval_s ~ 's' if r.last_clean_interval_s }}</td>
+        <td class="num cell-bad">{{ r.tripped_at_interval_s ~ 's' if r.tripped_at_interval_s }}</td>
+        <td>{{ r.skipped or r.trip_reason }}</td>
+        <td class="num">{{ r.latency_p50_ms }}</td><td class="num">{{ r.latency_p95_ms }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% elif name != 'monitor' %}
+<div class="warn-box">No summary: the run is still going or was killed.</div>
+{% endif %}
+
+{% if chart %}
+<section class="panel section">
+  <div class="panel-head"><h2>Latency</h2><span class="muted">per sample{{ ', last 3,000' if total > 3000 }}</span></div>
+  <div class="panel-pad"><div class="chart" id="runchart"></div></div>
+</section>
+{% endif %}
+
+<section class="panel section">
+  <div class="panel-head"><h2>Samples</h2><span class="muted">latest {{ samples|length }} of {{ total }}</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time (UTC)</th><th>Target</th><th class="num">Every</th><th class="num">HTTP</th><th class="num">ms</th><th>Challenge</th><th>In stock</th><th>Signal</th><th>Seller</th><th class="num">Price</th><th>Alert rule</th></tr></thead>
+      <tbody>
+      {% for s in samples %}
+      <tr>
+        <td class="nowrap mono">{{ s.timestamp_utc[5:10] }} {{ s.timestamp_utc[11:19] }}</td>
+        <td class="nowrap">{{ s.target }}</td>
+        <td class="num">{{ s.interval_s }}s</td>
+        <td class="num">{{ s.http_status }}</td>
+        <td class="num">{{ s.latency_ms }}</td>
+        <td class="{{ 'cell-bad' if s.challenge != 'None' }}">{{ s.challenge if s.challenge != 'None' }}</td>
+        <td class="{{ 'cell-good' if s.in_stock == 'true' }}">{{ s.in_stock }}</td>
+        <td class="mono" style="font-size:11.5px;max-width:320px">{{ s.raw_signal or s.error or s.note }}</td>
+        <td>{{ s.seller }}</td>
+        <td class="num">{{ s.price|money }}</td>
+        <td class="{{ 'cell-good' if s.alert_eligible == 'true' }}">{{ s.alert_reason }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if snapshots %}
+<section class="panel section">
+  <div class="panel-head"><h2>Snapshots</h2><span class="muted">{{ snapshots|length }}{{ '+' if snapshots|length == 200 }}, as text</span></div>
+  <ul class="snap-list">
+    {% for p in snapshots %}<li><a class="mono" style="display:block;padding:7px 16px;border-bottom:1px solid var(--border);font-size:12px"
+      href="{{ url_for('runs.file', name=name, rel='snapshots/' ~ p) }}" target="_blank">{{ p }}</a></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if chart %}<script>runChart(document.getElementById("runchart"), {{ chart|tojson }});</script>{% endif %}
+{% endblock %}

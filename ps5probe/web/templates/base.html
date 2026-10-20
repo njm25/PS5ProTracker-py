@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1014">
+<title>{% block title %}ps5probe{% endblock %}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236aa6ff'/><text x='16' y='22' font-size='16' text-anchor='middle' font-family='sans-serif' font-weight='700' fill='%2307162e'>P5</text></svg>">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/uPlot.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+<script src="{{ url_for('static', filename='vendor/htmx.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/uPlot.iife.min.js') }}"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="{{ url_for('dashboard.index') }}">
+      <span class="live-dot"
+            hx-get="{{ url_for('system.dot') }}" hx-trigger="load, monitor from:body" hx-swap="outerHTML"></span>
+      ps5probe
+    </a>
+    <nav class="nav">
+      {% for endpoint, label in nav %}
+      <a href="{{ url_for(endpoint) }}" class="{{ 'active' if request.endpoint and request.endpoint.split('.')[0] == endpoint.split('.')[0] }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <span id="conn" class="conn">connecting…</span>
+  </div>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

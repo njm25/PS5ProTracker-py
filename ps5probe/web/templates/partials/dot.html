@@ -1,0 +1,2 @@
+<span class="live-dot {{ 'on' if healthy else 'off' }}" title="monitor {{ 'healthy' if healthy else 'down' }}"
+      hx-get="{{ url_for('system.dot') }}" hx-trigger="monitor from:body" hx-swap="outerHTML"></span>

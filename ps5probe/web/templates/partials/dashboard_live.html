@@ -1,0 +1,111 @@
+{% import "partials/macros.html" as ui %}
+{% set watching = m.targets|rejectattr("kind", "equalto", "paused")|list %}
+{% set problems = m.targets|selectattr("kind", "in", ["cooldown", "error"])|list %}
+
+{# --- hero: the one thing to read --- #}
+{% if m.alerting %}
+<section class="hero instock">
+  <div class="hero-icon">★</div>
+  <div>
+    <h1>IN STOCK{% if m.alerting|length == 1 %} at {{ m.alerting[0].retailer }}{% endif %}</h1>
+    <p>{% for t in m.alerting %}{{ t.retailer }} · {{ t.price|money }} · {{ t.seller }}{% if not loop.last %} — {% endif %}{% endfor %}</p>
+  </div>
+  <div class="hero-actions">
+    {% for t in m.alerting %}<a class="btn go" href="{{ t.url }}" target="_blank" rel="noopener">Buy at {{ t.retailer }} →</a>{% endfor %}
+  </div>
+</section>
+{% elif not m.healthy %}
+<section class="hero down">
+  <div class="hero-icon">!</div>
+  <div>
+    <h1>Monitor is {{ 'not running' if m.service != 'active' else 'stuck' }}</h1>
+    <p>Service: {{ m.service }}{% if m.updated %} · last update {{ m.updated|ago }}{% endif %}. No stock checks are happening.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="btn" href="{{ url_for('system.index') }}">Open System →</a>
+  </div>
+</section>
+{% else %}
+<section class="hero ok">
+  <div class="hero-icon">✓</div>
+  <div>
+    <h1>Nothing in stock</h1>
+    <p>Watching {{ watching|length }} of {{ m.targets|length }} targets
+      {%- if problems %} · <span style="color:var(--red)">{{ problems|length }} blocked or failing</span>{% endif %}
+      · updated {{ m.updated|ago }}</p>
+  </div>
+</section>
+{% endif %}
+
+{# --- health strip --- #}
+<div class="stats-strip">
+  <div class="stat">
+    <div class="label">Monitor</div>
+    <div class="value"><span class="pill {{ m.service }}">{{ m.service }}</span></div>
+  </div>
+  <div class="stat">
+    <div class="label">Up for</div>
+    <div class="value">{{ (now() - m.started)|duration if m.started else '–' }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Checks (24h)</div>
+    <div class="value">{{ "{:,}".format(m.checks_24h) }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Discord</div>
+    <div class="value">{% if m.webhook %}<span class="pill active">connected</span>{% else %}<span class="pill inactive">no webhook</span>{% endif %}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Paused / blocked</div>
+    <div class="value">{{ (m.targets|length) - (watching|length) }} <small>/</small> {{ problems|selectattr("kind", "equalto", "cooldown")|list|length }}</div>
+  </div>
+</div>
+
+<div class="split section">
+  {# --- retailer cards --- #}
+  <div class="grid cards">
+    {% for t in m.targets %}
+    <article class="card {{ t.kind }}">
+      <div class="card-top">
+        <div class="card-title">
+          <h3><a href="{{ url_for('retailers.detail', name=t.name) }}">{{ t.retailer }}</a></h3>
+          <div class="sub">{{ t.name }} · every {{ t.interval|duration }}</div>
+        </div>
+        <span class="pill {{ t.kind }}">{{ t.label }}</span>
+      </div>
+      <div class="card-price">
+        {% if t.price %}<span class="price">{{ t.price|money }}</span>{% else %}<span class="price muted">—</span>{% endif %}
+        {% if t.seller %}<span class="seller">{{ t.seller }}</span>{% endif %}
+      </div>
+      {% if t.raw_signal %}<div class="signal" title="{{ t.raw_signal }}">{{ t.raw_signal }}</div>{% endif %}
+      {% set note = ui.status_note(t)|trim %}
+      {% if note %}<div class="card-note">{{ note }}</div>{% endif %}
+      <div class="card-metrics">
+        <div class="metric"><div class="label">Checked</div><div class="value">{{ t.last_check|ago }}</div></div>
+        <div class="metric"><div class="label">Uptime</div><div class="value">{{ t.stats.uptime ~ '%' if t.stats.get('uptime') is not none else '–' }}</div></div>
+        <div class="metric"><div class="label">p50</div><div class="value">{{ t.stats.p50 ~ 'ms' if t.stats.get('p50') else '–' }}</div></div>
+        {{ ui.ring(t) }}
+      </div>
+      {% set pts = sparkline(t.stats.get('spark') or []) %}
+      {% if pts %}
+      <div class="spark-wrap" title="latency, last hour">
+        <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none">
+          <polyline points="{{ pts }}" fill="none" stroke="var(--accent)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>
+        </svg>
+      </div>
+      {% endif %}
+      <div class="card-actions">{{ ui.actions(t) }}</div>
+    </article>
+    {% else %}
+    <div class="panel panel-pad muted">No monitor state yet. Is the monitor service running?</div>
+    {% endfor %}
+  </div>
+
+  {# --- activity --- #}
+  <aside class="panel">
+    <div class="panel-head"><h2>Activity</h2><a href="{{ url_for('activity.index') }}">All →</a></div>
+    <ul class="feed">
+      {% for e in events %}{{ ui.event_row(e) }}{% else %}<li class="feed-empty" style="display:block">Nothing yet.</li>{% endfor %}
+    </ul>
+  </aside>
+</div>

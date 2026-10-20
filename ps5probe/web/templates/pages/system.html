@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}System · ps5probe{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>System</h1>
+    <p>The two services on this VM, their logs, and the VM itself.</p>
+  </div>
+</div>
+
+{% if not sudo_ready %}
+<div class="warn-box" style="margin-bottom:16px">
+  <b>Start / stop / restart buttons need a one-time setup.</b> On the VM run:
+  <pre class="mono" style="margin:8px 0 0;white-space:pre-wrap">sudo install -m 440 deploy/ps5probe.sudoers /etc/sudoers.d/ps5probe && sudo visudo -c</pre>
+  It allows only these exact <span class="mono">systemctl</span> commands for the two ps5probe services.
+</div>
+{% endif %}
+
+<div id="live" hx-get="{{ url_for('system.live') }}" hx-trigger="every 10s" hx-swap="innerHTML">
+  {% include "partials/system_live.html" %}
+</div>
+
+<div class="grid two section">
+  {% for u in units %}
+  <section class="panel">
+    <div class="panel-head"><h2>{{ u.label }} log</h2><span class="muted mono">journalctl -u {{ u.name }}</span></div>
+    <pre class="console journal" hx-get="{{ url_for('system.journal', unit=u.name) }}" hx-trigger="load, every 5s" hx-swap="innerHTML">loading…</pre>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

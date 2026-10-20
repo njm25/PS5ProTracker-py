@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Probe runs · ps5probe{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Probe runs</h1>
+    <p>The Phase 1 harness: walks targets down a ramp of intervals to measure how fast each site can be polled.</p>
+  </div>
+</div>
+
+<div class="warn-box">
+  These requests come on top of the monitor's, from the same IP. A run that trips a retailer's bot protection can get the
+  monitor blocked too. Prefer <b>one sample each</b> unless you mean to measure.
+</div>
+
+<div class="grid two section">
+  <section class="panel">
+    <div class="panel-head"><h2>Start a run</h2></div>
+    <form class="panel-pad" hx-post="{{ url_for('runs.start') }}" hx-swap="none">
+      <div class="form-grid" style="grid-template-columns: 1fr 1fr">
+        <label class="field"><span>Profile</span>
+          <select name="profile">
+            <option value="">none (targets' own ramps)</option>
+            {% for name, p in options.profiles.items() %}
+            {% set headed = p.get('headless') is false %}
+            <option value="{{ name }}" {{ 'disabled' if headed and not has_display }}>{{ name }}{{ ' (needs a display)' if headed and not has_display }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="check" style="align-self:end;min-height:34px"><input type="checkbox" name="once" checked> One sample each</label>
+      </div>
+      <p class="muted" style="margin:14px 0 6px">Targets (none ticked: all enabled, or the profile's)</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px 12px">
+        {% for t in options.targets %}
+        <label class="check {{ '' if t.enabled else 'muted' }}"><input type="checkbox" name="only" value="{{ t.name }}"> {{ t.name }}</label>
+        {% endfor %}
+      </div>
+      <div class="form-actions" style="margin-top:16px"><button class="btn primary">Start run</button></div>
+    </form>
+  </section>
+
+  <section class="panel" id="job" hx-get="{{ url_for('runs.live_job') }}" hx-trigger="job from:body" hx-swap="innerHTML">
+    {% include "partials/job.html" %}
+  </section>
+</div>
+
+<section class="panel section">
+  <div class="panel-head"><h2>Past runs</h2><span class="muted">runs/</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Run</th><th>When</th><th class="num">Targets</th><th class="num">Samples</th><th class="num">Trips</th><th class="num">Would alert</th></tr></thead>
+      <tbody>
+      {% for r in runs %}
+      <tr>
+        <td><a href="{{ url_for('runs.detail', name=r.name) }}" class="mono">{{ r.name }}</a>
+          {% if r.monitor %}<span class="badge">monitor log</span>{% elif not r.finished %}<span class="badge">running or no summary</span>{% endif %}</td>
+        <td class="nowrap">{{ r.ts|ago }}</td>
+        <td class="num">{{ r.targets if r.targets is not none else '' }}</td>
+        <td class="num">{{ r.samples if r.samples is not none else '' }}</td>
+        <td class="num {{ 'cell-bad' if r.trips }}">{{ r.trips if r.trips is not none else '' }}</td>
+        <td class="num {{ 'cell-good' if r.alerts }}">{{ r.alerts if r.alerts is not none else '' }}</td>
+      </tr>
+      {% else %}<tr><td colspan="6" class="muted">No runs yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

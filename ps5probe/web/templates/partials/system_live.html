@@ -1,0 +1,45 @@
+<div class="grid two">
+  {% for u in units %}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>{{ u.label }}</h2>
+      <span class="pill {{ u.state }}">{{ u.state }}{{ ' (' ~ u.sub ~ ')' if u.sub and u.sub not in ('running', 'dead') }}</span>
+    </div>
+    <div class="panel-pad">
+      <dl class="kv">
+        <dt>Unit</dt><dd class="mono">{{ u.name }}.service</dd>
+        <dt>Up for</dt><dd>{{ (now() - u.since)|duration if u.since and u.state == 'active' else '–' }}</dd>
+        <dt>Memory</dt><dd>{{ u.memory_mb ~ ' MB' if u.memory_mb is not none else '–' }}</dd>
+        <dt>Restarts</dt><dd>{{ u.restarts or 0 }}</dd>
+        <dt>At boot</dt><dd>{{ u.enabled }}</dd>
+      </dl>
+      <div class="form-actions" style="margin-top:14px">
+        {% for a in u.actions %}
+        {% if not (a == 'start' and u.state == 'active') and not (a == 'stop' and u.state != 'active') %}
+        <button class="btn sm {{ 'danger' if a == 'stop' }}" hx-post="{{ url_for('system.control', unit=u.name, action=a) }}" hx-swap="none"
+                {% if a == 'stop' %}data-confirm="Stop all stock checks?"{% elif u.name == 'ps5probe-web' %}data-confirm="Restart this page's server?"{% endif %}
+                {{ 'disabled title="needs the sudoers rule"' if not sudo_ready }}>{{ a|capitalize }}</button>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+
+<div class="stats-strip section" style="margin-top:16px">
+  <div class="stat"><div class="label">Memory</div>
+    <div class="value">{{ vm.mem_used_gb }} <small>/ {{ vm.mem_total_gb }} GB</small></div>
+    <div class="meter {{ 'bad' if vm.mem_used_pct > 90 else 'warn' if vm.mem_used_pct > 75 }}"><i style="width:{{ vm.mem_used_pct }}%"></i></div></div>
+  <div class="stat"><div class="label">Load (1m, {{ vm.cpus }} CPUs)</div>
+    <div class="value">{{ '%.2f'|format(vm.load[0]) }} <small>{{ '%.2f'|format(vm.load[1]) }} · {{ '%.2f'|format(vm.load[2]) }}</small></div>
+    <div class="meter {{ 'bad' if vm.load[0] > vm.cpus else 'warn' if vm.load[0] > vm.cpus * 0.7 }}"><i style="width:{{ [100, 100 * vm.load[0] / vm.cpus]|min }}%"></i></div></div>
+  <div class="stat"><div class="label">Disk</div>
+    <div class="value">{{ vm.disk_used_pct }}% <small>{{ vm.disk_free_gb }} GB free</small></div>
+    <div class="meter {{ 'bad' if vm.disk_used_pct > 90 else 'warn' if vm.disk_used_pct > 80 }}"><i style="width:{{ vm.disk_used_pct }}%"></i></div></div>
+  <div class="stat"><div class="label">Chromium</div>
+    <div class="value">{{ vm.chrome_mb }} MB <small>{{ vm.chrome_procs }} procs</small></div></div>
+  <div class="stat"><div class="label">Virtual display</div>
+    <div class="value"><span class="pill {{ 'active' if vm.xvfb else 'inactive' }}">{{ 'Xvfb up' if vm.xvfb else 'not running' }}</span></div></div>
+  <div class="stat"><div class="label">VM up for</div><div class="value">{{ vm.uptime|duration }}</div></div>
+</div>

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{% if m.alerting %}IN STOCK · {% endif %}ps5probe{% endblock %}
+{% block content %}
+<div id="live" hx-get="{{ url_for('dashboard.live') }}" hx-trigger="monitor from:body" hx-swap="innerHTML">
+  {% include "partials/dashboard_live.html" %}
+</div>
+{% endblock %}

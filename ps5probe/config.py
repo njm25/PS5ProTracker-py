@@ -94,6 +94,8 @@ class Monitor:
     max_cooldown_minutes: int = 240
     # A "still running" summary post; 0 turns it off.
     heartbeat_hours: int = 24
+    # Overrides the top-level headless for the monitor's browser targets (false needs a display, e.g. xvfb-run).
+    headless: bool | None = None
 
 
 @dataclass
@@ -141,6 +143,8 @@ def from_dict(raw: dict[str, Any]) -> Options:
     options = _build(
         Options, {**raw, "credentials": credentials, "discord": discord, "monitor": monitor, "targets": targets}, "config"
     )
+    # An interval of 0 or null turns a target off (config.local.json can't delete config.json's keys).
+    options.monitor.targets = {n: int(s) for n, s in options.monitor.targets.items() if s}
     unknown = [n for n in options.monitor.targets if _find({t.name: t for t in targets}, n) is None]
     if unknown:
         raise ConfigError(f"monitor.targets names unknown target(s) {', '.join(unknown)}")

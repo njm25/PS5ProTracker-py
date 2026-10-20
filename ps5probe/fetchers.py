@@ -82,6 +82,8 @@ class BrowserHost:
 
     async def new_context(self) -> BrowserContext:
         async with self._lock:
+            if self._browser is not None and not self._browser.is_connected():
+                self._browser = None  # crashed: launch a new one
             if self._browser is None:
                 if self._playwright is None:
                     self._playwright = await async_playwright().start()
@@ -104,19 +106,30 @@ class BrowserHost:
 class BrowserFetcher:
     """Loads a page in a per-target browser context and returns the rendered HTML."""
 
+    # A tab reused for hours grows to most of a GB; a fresh tab every so often (same context,
+    # so cookies stay) keeps it small.
+    PAGE_REUSES = 20
+
     def __init__(self, host: BrowserHost, options: Options):
         self._host = host
         self._timeout_ms = options.request_timeout_seconds * 1000
         self._context: BrowserContext | None = None
         self._page: Page | None = None
+        self._uses = 0
 
     async def fetch(self, target: Target) -> FetchResult:
         start = time.perf_counter()
         try:
+            if self._page is not None and self._uses >= self.PAGE_REUSES:
+                await self._page.close()
+                self._page = await self._context.new_page()
+                self._uses = 0
             if self._page is None:
                 self._context = await self._host.new_context()
                 self._page = await self._context.new_page()
+                self._uses = 0
                 start = time.perf_counter()
+            self._uses += 1
             page = self._page
 
             resp = await page.goto(target.url, wait_until="domcontentloaded", timeout=self._timeout_ms)
@@ -136,11 +149,16 @@ class BrowserFetcher:
         except PlaywrightTimeout:
             return FetchResult(None, _ms_since(start), "", target.url, timed_out=True, error="navigation timeout")
         except PlaywrightError as ex:
+            await self.close()  # the page or browser may be dead: start fresh next time
             return FetchResult(None, _ms_since(start), "", target.url, error=str(ex).split("\n")[0])
 
     async def close(self) -> None:
-        if self._context is not None:
-            await self._context.close()
+        context, self._context, self._page = self._context, None, None
+        if context is not None:
+            try:
+                await context.close()
+            except PlaywrightError:
+                pass
 
 
 class WalmartSigner:

@@ -1,0 +1,63 @@
+{# Pieces shared by the dashboard, the retailer page and the activity feed. #}
+
+{% macro ring(t, size=38) -%}
+  {%- set r = 15 %}{% set c = 2 * 3.14159 * r -%}
+  {%- set until = t.paused_until if t.kind == 'paused' else (t.cooldown_until if t.kind == 'cooldown' else t.next_check) -%}
+  {%- set total = t.interval if t.kind not in ('paused', 'cooldown') else ((until or 0) - (t.last_check or 0)) -%}
+  {%- if until and until < 1e11 -%}
+  <div class="ring {{ t.kind }}" data-next="{{ until }}" data-total="{{ [total, 1]|max }}" title="next check">
+    <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 38 38">
+      <circle class="track" cx="19" cy="19" r="{{ r }}"/>
+      <circle class="fill" cx="19" cy="19" r="{{ r }}" stroke-dasharray="{{ c }}" stroke-dashoffset="{{ c }}" data-c="{{ c }}"/>
+    </svg>
+    <span></span>
+  </div>
+  {%- elif until -%}
+  <div class="ring paused" title="paused until resumed"><svg width="{{ size }}" height="{{ size }}" viewBox="0 0 38 38"><circle class="track" cx="19" cy="19" r="{{ r }}"/></svg><span>∞</span></div>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro actions(t, detail=True) -%}
+  <button class="btn sm" hx-post="{{ url_for('api.command') }}" hx-vals='{"cmd": "check_now", "target": "{{ t.name }}"}'
+          {{ 'disabled title="the retailer is cooling down"' if t.kind == 'cooldown' }}>Check now</button>
+  {% if t.kind == 'paused' %}
+  <button class="btn sm" hx-post="{{ url_for('api.command') }}" hx-vals='{"cmd": "resume", "target": "{{ t.name }}"}'>Resume</button>
+  {% else %}
+  <button class="btn sm" hx-post="{{ url_for('api.command') }}" hx-vals='{"cmd": "pause", "target": "{{ t.name }}", "minutes": "60"}'>Pause 1h</button>
+  <button class="btn sm ghost" hx-post="{{ url_for('api.command') }}" hx-vals='{"cmd": "pause", "target": "{{ t.name }}"}'
+          data-confirm="Pause until resumed?">Pause</button>
+  {% endif %}
+  {% if t.kind == 'cooldown' %}
+  <button class="btn sm danger" hx-post="{{ url_for('api.command') }}" hx-vals='{"cmd": "clear_cooldown", "retailer": "{{ t.retailer }}"}'
+          data-confirm="Sure? It was blocked">Clear cooldown</button>
+  {% endif %}
+  {% if detail %}<a class="btn sm ghost" href="{{ url_for('retailers.detail', name=t.name) }}" style="margin-left:auto">Details →</a>{% endif %}
+{%- endmacro %}
+
+{% macro status_note(t) -%}
+  {% if t.kind == 'cooldown' %}Blocked, resuming in <b data-until="{{ t.cooldown_until }}"></b>
+  {% elif t.kind == 'paused' %}{% if t.paused_until < 1e11 %}Paused, resuming in <b data-until="{{ t.paused_until }}"></b>{% else %}Paused until resumed{% endif %}
+  {% elif t.kind == 'error' %}{{ t.error or t.challenge or 'No stock signal' }}{% if t.consecutive_errors %} · {{ t.consecutive_errors }} in a row{% endif %}
+  {% elif t.kind == 'other-stock' %}{{ t.alert_reason }}
+  {% endif %}
+{%- endmacro %}
+
+{% set ICONS = {"alert": "★", "gone": "↓", "change": "↻", "block": "⛔", "resume": "✓", "command": "⌘",
+                "start": "▶", "stop": "■", "reload": "⟳", "heartbeat": "♥", "config": "!"} %}
+
+{% macro event_row(e, show_target=True) -%}
+  <li>
+    <div class="ico {{ e.kind }}">{{ ICONS.get(e.kind, '•') }}</div>
+    <div>
+      <div class="title">{{ e.title }}</div>
+      <div class="meta">
+        {{ e.ts|ago }}
+        {% if show_target and e.target %}<a href="{{ url_for('retailers.detail', name=e.target) }}">{{ e.target }}</a>{% endif %}
+        {% if e.delivered is true %}<span class="badge ok">Discord ✓</span>
+        {% elif e.delivered is false %}<span class="badge bad">Discord failed</span>{% endif %}
+        {% if e.ping %}<span class="badge ok">pinged</span>{% endif %}
+      </div>
+      {% if e.text and e.kind != 'reload' %}<div class="text {{ 'mono' if e.kind in ('change', 'heartbeat', 'start', 'reload') }}">{{ e.text }}</div>{% endif %}
+    </div>
+  </li>
+{%- endmacro %}

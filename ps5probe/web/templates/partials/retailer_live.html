@@ -1,0 +1,37 @@
+{% import "partials/macros.html" as ui %}
+<div class="split">
+  <section class="card {{ t.kind }}">
+    <div class="card-top">
+      <div class="card-title">
+        <div class="card-price" style="padding:0">
+          {% if t.price %}<span class="price" style="font-size:28px">{{ t.price|money }}</span>{% else %}<span class="price muted">—</span>{% endif %}
+          {% if t.seller %}<span class="seller">{{ t.seller }}</span>{% endif %}
+        </div>
+      </div>
+      <span class="pill {{ t.kind }}">{{ t.label }}</span>
+    </div>
+    {% if t.raw_signal %}<div class="signal" style="white-space:normal">{{ t.raw_signal }}</div>{% endif %}
+    {% set note = ui.status_note(t)|trim %}
+    {% if note %}<div class="card-note">{{ note }}</div>{% endif %}
+    <div class="card-metrics" style="grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) auto">
+      <div class="metric"><div class="label">Checked</div><div class="value">{{ t.last_check|ago }}</div></div>
+      <div class="metric"><div class="label">HTTP</div><div class="value">{{ t.challenge or t.status or '–' }}</div></div>
+      <div class="metric"><div class="label">Latency</div><div class="value">{{ t.latency_ms ~ 'ms' if t.latency_ms else '–' }}</div></div>
+      <div class="metric"><div class="label">Uptime 24h</div><div class="value">{{ t.stats.uptime ~ '%' if t.stats.get('uptime') is not none else '–' }}</div></div>
+      <div class="metric"><div class="label">Checks 24h</div><div class="value">{{ t.stats.get('checks', 0) }}</div></div>
+      <div class="metric"><div class="label">Blocks</div><div class="value">{{ t.blocks }}</div></div>
+      <div class="metric"><div class="label">Last change</div><div class="value">{{ t.last_change|ago }}</div></div>
+      <div class="metric"><div class="label">Last alert</div><div class="value">{{ t.last_alert|ago }}</div></div>
+      {{ ui.ring(t, 44) }}
+    </div>
+    {% if t.error and t.kind != 'error' %}<div class="card-note muted">Last note: {{ t.error }}</div>{% endif %}
+    <div class="card-actions" style="margin-top:12px">{{ ui.actions(t, detail=False) }}</div>
+  </section>
+
+  <aside class="panel">
+    <div class="panel-head"><h2>Activity</h2><a href="{{ url_for('activity.index', target=t.name) }}">All →</a></div>
+    <ul class="feed" style="max-height:420px;overflow:auto">
+      {% for e in events %}{{ ui.event_row(e, show_target=False) }}{% else %}<li class="feed-empty" style="display:block">Nothing yet.</li>{% endfor %}
+    </ul>
+  </aside>
+</div>

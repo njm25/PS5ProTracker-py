@@ -27,9 +27,14 @@
   "monitor": {
     "targets": {
       "psdirect-api-bust": 10,
+      "psdirect-page": 60,
       "walmart-page": 60,
-      "samsclub-page": 180
+      "samsclub-page": 180,
+      "target-page": 120,
+      "gamestop-page": 120,
+      "newegg-page": 120
     },
+    "headless": false,
     "jitter": 0.15,
     "cooldown_minutes": 30,
     "max_cooldown_minutes": 240,

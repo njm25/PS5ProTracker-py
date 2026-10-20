@@ -24,8 +24,11 @@ ps5probe-web = "ps5probe.web:main"
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["ps5probe"]
+[tool.setuptools.packages.find]
+include = ["ps5probe*"]
+
+[tool.setuptools.package-data]
+"ps5probe.web" = ["templates/**/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

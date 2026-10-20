@@ -49,17 +49,34 @@ Output goes to `runs/<timestamp>[-profile]/` in the checkout, wherever you run f
 
 ## Web UI
 
-`ps5probe-web` (or `python -m ps5probe.web`) serves a small Flask UI on `0.0.0.0:8080`: targets and profiles, start a run (once / profile / picked targets) with live console output, stop it (sends Ctrl+C, so the summary is still written), and browse past runs, samples and snapshots. One run at a time; it shells out to `python -m ps5probe`, so behaviour matches the CLI. No auth, so keep it on a trusted LAN. `PS5_PROBE_WEB_HOST` / `PS5_PROBE_WEB_PORT` change the bind address, and `PS5_PROBE_WEB_RELOAD=1` (set in the service) restarts the server whenever a `ps5probe` source file changes; a run in progress carries on and is picked back up.
+`ps5probe-web` (or `python -m ps5probe.web`) serves the management UI on `0.0.0.0:8080`. It's meant for the LAN or Tailscale only and has no login. It works on a phone.
+
+- **Dashboard:**
+  - a banner saying whether anything is in stock (with buy links) or the monitor is down
+  - one card per target: status, price and seller, raw signal, a countdown to the next check, a 1-hour latency sparkline, 24-hour uptime and median latency
+  - buttons on each card: **check now**, **pause** (1 hour, or until resumed), **clear cooldown**
+  - a health strip and the latest activity
+- **Retailer pages:** a 6h / 24h / 7-day status strip and latency chart, that target's events, and the setup. Saved pages are shown in a sandboxed frame with scripts and outside requests blocked.
+- **Activity:** every monitor event, filterable by kind and target, with whether Discord took it.
+- **Probe runs:** start or stop a Phase 1 run with a live console, and browse past runs with a latency chart, samples and snapshots.
+- **Settings:** which targets the monitor watches and how often, max price, Discord mention, webhook and toggles, cooldowns, jitter, heartbeat. Saving validates the settings and writes `config.local.json` (mode 600); the monitor reloads within seconds.
+- **System:** both services' status, memory and restarts, start / stop / restart buttons, live journal tails, and VM memory, load, disk, Chromium and Xvfb.
+
+Pages update live over server-sent events (`/api/stream`). Front end: Jinja templates, htmx, and uPlot for charts, vendored in `ps5probe/web/static/vendor/`, with no build step.
+
+`PS5_PROBE_WEB_HOST` / `PS5_PROBE_WEB_PORT` change the bind address. `PS5_PROBE_WEB_RELOAD=1` (set in the service) restarts the server whenever a `ps5probe` source file changes; a probe run in progress carries on and is picked back up. Templates and static files reload without it.
 
 ```bash
 pip install -e ".[web]"
 sudo cp deploy/ps5probe-web.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now ps5probe-web
+# Optional, for the System page's start/stop/restart buttons (allows only those exact commands):
+sudo install -m 440 deploy/ps5probe.sudoers /etc/sudoers.d/ps5probe && sudo visudo -c
 ```
 
 ## Monitor (Phase 2)
 
-`python -m ps5probe --monitor` polls the targets in `monitor.targets` (name → seconds) forever and posts to a Discord webhook:
+`python -m ps5probe --monitor` polls the targets in `monitor.targets` (name → seconds; 0 turns one off) forever and posts to a Discord webhook:
 
 - **Stock alert** (pings `discord.mention`, default `@here`): a target starts meeting the alert rule. Sent once per restock, even across restarts.
 - **Stock gone**: an alerting target stops meeting the rule.
@@ -69,7 +86,13 @@ sudo systemctl daemon-reload && sudo systemctl enable --now ps5probe-web
 
 Put the webhook in `config.local.json` (`{"discord": {"webhook_url": "https://discord.com/api/webhooks/..."}}`) and check it with `python -m ps5probe --test-notify` or the web UI button. Without one, messages only go to the console.
 
-State (last signal, cooldowns, what already alerted) is in `runs/.monitor/state.json`, which the web UI shows. Notable samples and their snapshots go to `runs/monitor/`. The monitor re-executes itself when `ps5probe/*.py` or the config changes. Run it as a service:
+Everything the UI shows lives in `runs/.monitor/`:
+- `state.json`: last signal, cooldowns, pauses, what already alerted.
+- `events.jsonl`: alerts, changes, blocks, commands.
+- `checks-YYYYMMDD.csv`: one row per check, kept 14 days.
+- `commands/`: the UI drops check-now, pause, resume and clear-cooldown requests here.
+
+A lone timeout counts as a failure, not a block. Notable samples and their snapshots go to `runs/monitor/`. The monitor re-executes itself when `ps5probe/*.py` or the config changes. Run it as a service:
 
 ```bash
 sudo cp deploy/ps5probe-monitor.service /etc/systemd/system/
@@ -88,7 +111,7 @@ These count as a challenge or block: 429, 403, 412, 435, timeouts, Cloudflare "J
 
 ## Config
 
-Settings live in `config.json` at the repo root. Put secrets in `config.local.json` next to it (git-ignored; objects merge key by key, lists replace), or in environment variables like `PS5_PROBE__CREDENTIALS__BESTBUY_API_KEY`.
+Settings live in `config.json` at the repo root. Put secrets in `config.local.json` next to it (git-ignored; objects merge key by key, lists replace), or in environment variables like `PS5_PROBE__CREDENTIALS__BESTBUY_API_KEY`. The web UI's Settings page can set the API keys too, and can make the Walmart.io key pair (saved to `keys/walmart.pem`, git-ignored).
 
 ```json
 { "credentials": {
@@ -133,7 +156,7 @@ The browser targets use a fresh, throwaway Chromium profile, never your signed-i
 | `ps5probe/log.py` | `samples.csv`, snapshots, console lines |
 | `ps5probe/monitor.py` | Phase 2: polls forever, cooldowns, Discord events |
 | `ps5probe/notify.py` | Discord webhook posts |
-| `ps5probe/web.py` | Flask UI: monitor status, start/stop runs, browse results |
+| `ps5probe/web/` | Flask UI: `data.py` reads monitor/run files, `control.py` sends commands and saves settings, `system.py` talks to systemd, `routes/` one module per page, `templates/`, `static/` |
 
 ## Tests
 
