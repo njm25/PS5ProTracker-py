@@ -198,6 +198,54 @@ def _microdata(doc: BeautifulSoup, t: Target) -> ParseResult:
     )
 
 
+@parser("lenovo-inventory")
+def lenovo_inventory(body: str, t: Target) -> ParseResult:
+    """Lenovo's inventory API (POST openapi.lenovo.com/us/en/inventory/front/query): data[].currentNum.
+
+    The product page's JSON-LD says InStock while the page shows "Available Soon" (it's an edge-cached
+    copy), so this is the signal to trust. status 2 / currentNum 0 is "Available Soon" (10-20); other
+    status values weren't seen yet, so any change shows up as a signal change. The API has no price:
+    params.list_price stands in.
+    """
+    root = parse_json(body)
+    if get(root, "success") is False:
+        return ParseResult.not_found(f"api error: {as_str(get(root, 'msg'))}")
+    code = t.param("product_code")
+    item = next((i for i in items(get(root, "data")) if as_str(get(i, "productCode")) == code), None)
+    if item is None:
+        return ParseResult.not_found(f"no product {code}")
+    num, status = get(item, "currentNum"), as_str(get(item, "status"))
+    if not isinstance(num, int):
+        return ParseResult.not_found("no currentNum")
+    return ParseResult(True, num > 0, f"status={status}; currentNum={num}", "Lenovo",
+                       as_price(t.params.get("list_price")), "New")
+
+
+_VERIZON_INVENTORY = re.compile(r'"dFillInventory":(\{[^{}]*\})')
+
+
+@parser("verizon-page")
+def verizon_page(body: str, t: Target) -> ParseResult:
+    """Verizon product page: the Next.js flight payload (escaped JSON in self.__next_f.push) carries
+    dFillInventory {isAvailable, isInStock, qtyAvailable} and, per SKU, {isInStock, price, sorId}.
+    Params: sku (the sorId, Sony's model number).
+    """
+    text = body.replace('\\"', '"')
+    inv = _VERIZON_INVENTORY.search(text)
+    sku = re.search(r'"isInStock":(true|false),"price":([\d.]+),"sorId":"%s"' % re.escape(t.param("sku")), text)
+    if inv is None and sku is None:
+        return ParseResult.not_found("no dFillInventory or sku entry")
+    d = parse_json(inv.group(1)) if inv else {}
+    shipping = bool(get(d, "isInStock") or get(d, "isAvailable"))
+    listed = sku is not None and sku.group(1) == "true"
+    return ParseResult(
+        True, shipping or listed,
+        f"isInStock={get(d, 'isInStock')}; isAvailable={get(d, 'isAvailable')}; qty={get(d, 'qtyAvailable')}; "
+        f"sku={sku.group(1) if sku else None}",
+        "Verizon", as_price(sku.group(2)) if sku else None, "New",
+    )
+
+
 @parser("gamestop-page")
 def gamestop_page(body: str, t: Target) -> ParseResult:
     """GameStop: one page holds New, Pre-Owned and Refurbished.

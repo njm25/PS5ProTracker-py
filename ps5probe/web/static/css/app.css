@@ -268,6 +268,7 @@ tr:last-child td { border-bottom: 0; }
 }
 .feed .ico.alert { background: var(--green); color: #06210f; }
 .feed .ico.gone, .feed .ico.block { background: var(--red-soft); color: var(--red); }
+.feed .ico.proxy { background: var(--amber-soft); color: var(--amber); }
 .feed .ico.change { background: var(--amber-soft); color: var(--amber); }
 .feed .ico.resume, .feed .ico.start { background: var(--green-soft); color: var(--green); }
 .feed .ico.command { background: var(--violet-soft); color: var(--violet); }

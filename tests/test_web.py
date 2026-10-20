@@ -89,8 +89,10 @@ def test_snapshot_and_run_files_cannot_escape(client, tmp_path):
     assert client.get("/runs/monitor/file/..%2F..%2Fconfig.json").status_code == 404
 
 
-def settings_form(**over):
-    form = {"max_price": "899.99", "mention": "@here", "notify_changes": "on", "notify_blocks": "on",
+def settings_form(only_first=False, **over):
+    """What the Settings page posts: every target listed, only psdirect-api-bust ticked."""
+    shown = {} if only_first else {f"interval_{t.name}": "60" for t in config.load().targets}
+    form = {**shown, "max_price": "899.99", "mention": "@here", "notify_changes": "on", "notify_blocks": "on",
             "webhook_url": control.SECRET_MASK, "cooldown_minutes": "30", "max_cooldown_minutes": "240",
             "jitter": "0.15", "heartbeat_hours": "24", "on_psdirect-api-bust": "on", "interval_psdirect-api-bust": "15"}
     return {**form, **over}
@@ -136,3 +138,41 @@ def test_coverage_counts_time_paused_after_a_block():
     good = [now - 1200 + i * 10 for i in range(60)]
     assert data._coverage(good, good[0], now, 10) == 52  # the last check vouches for 30s more
     assert data._coverage(good, good[0], now, None) is None
+
+
+def test_proxy_settings(client, tmp_path, monkeypatch):
+    form = settings_form(**{"proxy_psdirect-api-bust": "rotate"})
+    r = client.post("/settings", data=form)
+    assert r.status_code == 400 and "proxy list URL" in r.get_data(as_text=True)
+
+    r = client.post("/settings", data={**form, "proxy_list_url": "https://proxy.example/list", "proxy_refresh_hours": "6"})
+    assert r.status_code == 302
+    px = json.loads((tmp_path / "config.local.json").read_text())["proxies"]
+    assert px["list_url"] == "https://proxy.example/list" and px["targets"]["psdirect-api-bust"] == "rotate"
+    assert px["targets"]["target-page"] == "off"
+
+    r = client.post("/settings", data=settings_form(**{"proxy_target-page": "rotate"}))
+    assert r.status_code == 400 and "can&#39;t rotate" in r.get_data(as_text=True)
+
+
+def test_system_page_lists_proxies(client, tmp_path):
+    write_state(tmp_path)
+    state = json.loads((tmp_path / ".monitor" / "state.json").read_text())
+    state["proxies"] = {"count": 2, "modes": {"ps": "rotate"},
+                        "stats": {"1.2.3.4:80": {"requests": 7, "failures": 1, "blocks": 1, "day": "2000-01-01",
+                                                 "bytes_day": 5_000_000, "last_used": time.time(), "last_error": "WalmartBlock"}},
+                        "rests": {"Walmart": {"1.2.3.4:80": {"until": time.time() + 600, "strikes": 1, "fails": 0}}}}
+    (tmp_path / ".monitor" / "state.json").write_text(json.dumps(state))
+    page = client.get("/system").get_data(as_text=True)
+    assert "1.2.3.4:80" in page and "WalmartBlock" in page and "Walmart" in page
+    assert "0.0 MB" in page  # yesterday's bytes don't count as today's
+
+
+def test_targets_missing_from_an_old_form_keep_their_settings(client, tmp_path):
+    (tmp_path / "config.local.json").write_text(json.dumps(
+        {"monitor": {"targets": {"abt-page": 120}}, "proxies": {"targets": {"lenovo-api": "rotate"}}}))
+    form = settings_form(only_first=True, proxy_list_url="https://proxy.example/list")  # an old page
+    assert client.post("/settings", data=form).status_code == 302
+    local = json.loads((tmp_path / "config.local.json").read_text())
+    assert local["monitor"]["targets"] == {"abt-page": 120, "psdirect-api-bust": 15}
+    assert local["proxies"]["targets"] == {"lenovo-api": "rotate", "psdirect-api-bust": "off"}

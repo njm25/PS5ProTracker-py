@@ -6,7 +6,8 @@ bp = Blueprint("system", __name__)
 
 
 def _context() -> dict:
-    return {"units": [system.unit(u) for u in system.UNITS], "vm": system.vm(), "sudo_ready": system.sudo_ready()}
+    return {"units": [system.unit(u) for u in system.UNITS], "vm": system.vm(), "sudo_ready": system.sudo_ready(),
+            "m": data.monitor(with_stats=False), "proxy_list": data.proxy_list(), "proxy_cap": data.options().proxies.daily_mb}
 
 
 @bp.get("/system")

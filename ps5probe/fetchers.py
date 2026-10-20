@@ -12,6 +12,7 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 
 from .config import Options, Target
+from .proxies import Proxy
 from .models import FetchResult
 
 _CACHE_HEADERS = {
@@ -35,12 +36,25 @@ def _ms_since(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
 
 
+_HEAVY = {"image", "media", "font"}
+
+
+async def _skip_heavy(route) -> None:
+    if route.request.resource_type in _HEAVY:
+        await route.abort()
+    else:
+        await route.continue_()
+
+
 class HttpFetcher:
     """Plain HTTP GET with its own cookie jar, so each target looks like one steady visitor."""
 
-    def __init__(self, options: Options):
+    def __init__(self, options: Options, proxy: Proxy | None = None, http2: bool = False):
         self._timeout = options.request_timeout_seconds
+        self._proxy = proxy
         self._client = httpx.AsyncClient(
+            proxy=proxy.url if proxy else None,
+            http2=http2,
             follow_redirects=True,
             timeout=None,  # the whole request is bounded below instead
             headers={
@@ -50,18 +64,24 @@ class HttpFetcher:
             },
         )
 
-    async def fetch(self, url: str, extra_headers: dict[str, str] | None = None) -> FetchResult:
+    async def fetch(self, url: str, extra_headers: dict[str, str] | None = None,
+                    post_body: str | None = None) -> FetchResult:
         start = time.perf_counter()
         try:
             async with asyncio.timeout(self._timeout):
-                resp = await self._client.get(url, headers=extra_headers)
+                if post_body is None:
+                    resp = await self._client.get(url, headers=extra_headers)
+                else:
+                    resp = await self._client.post(url, headers=extra_headers, content=post_body)
         except TimeoutError:
             return FetchResult(None, _ms_since(start), "", url, timed_out=True, error="timeout")
         except httpx.HTTPError as ex:
-            return FetchResult(None, _ms_since(start), "", url, error=str(ex) or type(ex).__name__)
+            error = str(ex) or type(ex).__name__
+            return FetchResult(None, _ms_since(start), "", url, error=self._proxy.redact(error) if self._proxy else error)
+        size = len(resp.content) + sum(len(k) + len(v) + 4 for k, v in resp.headers.multi_items())
         return FetchResult(
             resp.status_code, _ms_since(start), resp.text, str(resp.url),
-            headers=pick_headers(resp.headers.multi_items()),
+            headers=pick_headers(resp.headers.multi_items()), bytes=size,
         )
 
     async def close(self) -> None:
@@ -77,7 +97,7 @@ class BrowserHost:
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
 
-    async def new_context(self) -> BrowserContext:
+    async def new_context(self, proxy: Proxy | None = None) -> BrowserContext:
         async with self._lock:
             if self._browser is not None and not self._browser.is_connected():
                 self._browser = None  # crashed: launch a new one
@@ -87,11 +107,16 @@ class BrowserHost:
                 self._browser = await self._playwright.chromium.launch(headless=self._headless)
 
         # A clean, throwaway profile: never the user's signed-in retailer sessions.
-        return await self._browser.new_context(
+        context = await self._browser.new_context(
             locale="en-US",
             timezone_id="America/New_York",
             viewport={"width": 1366, "height": 900},
+            proxy=proxy.playwright() if proxy else None,
         )
+        if proxy is not None:
+            # Proxy plans meter bandwidth; the stock signal never needs images, fonts or video.
+            await context.route("**/*", _skip_heavy)
+        return context
 
     async def close(self) -> None:
         if self._browser is not None:
@@ -107,25 +132,37 @@ class BrowserFetcher:
     # so cookies stay) keeps it small.
     PAGE_REUSES = 20
 
-    def __init__(self, host: BrowserHost, options: Options):
+    def __init__(self, host: BrowserHost, options: Options, proxy: Proxy | None = None):
         self._host = host
+        self._proxy = proxy
         self._timeout_ms = options.request_timeout_seconds * 1000
         self._context: BrowserContext | None = None
         self._page: Page | None = None
         self._uses = 0
+        self._bytes = 0
+
+    def _new_page_counted(self, page: Page) -> Page:
+        def count(resp) -> None:
+            try:
+                self._bytes += int(resp.headers.get("content-length") or 0)
+            except ValueError:
+                pass
+        page.on("response", count)
+        return page
 
     async def fetch(self, target: Target) -> FetchResult:
         start = time.perf_counter()
         try:
             if self._page is not None and self._uses >= self.PAGE_REUSES:
                 await self._page.close()
-                self._page = await self._context.new_page()
+                self._page = self._new_page_counted(await self._context.new_page())
                 self._uses = 0
             if self._page is None:
-                self._context = await self._host.new_context()
-                self._page = await self._context.new_page()
+                self._context = await self._host.new_context(self._proxy)
+                self._page = self._new_page_counted(await self._context.new_page())
                 self._uses = 0
                 start = time.perf_counter()
+            self._bytes = 0
             self._uses += 1
             page = self._page
 
@@ -142,12 +179,15 @@ class BrowserFetcher:
 
             html = await page.content()
             headers = pick_headers(resp.headers.items()) if resp is not None else {}
-            return FetchResult(resp.status if resp is not None else None, nav_ms, html, page.url, headers=headers)
+            return FetchResult(resp.status if resp is not None else None, nav_ms, html, page.url, headers=headers,
+                               bytes=max(self._bytes, len(html)))
         except PlaywrightTimeout:
             return FetchResult(None, _ms_since(start), "", target.url, timed_out=True, error="navigation timeout")
         except PlaywrightError as ex:
             await self.close()  # the page or browser may be dead: start fresh next time
-            return FetchResult(None, _ms_since(start), "", target.url, error=str(ex).split("\n")[0])
+            error = str(ex).split("\n")[0]
+            return FetchResult(None, _ms_since(start), "", target.url,
+                               error=self._proxy.redact(error) if self._proxy else error)
 
     async def close(self) -> None:
         context, self._context, self._page = self._context, None, None

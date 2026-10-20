@@ -19,7 +19,7 @@
     <div class="panel-head"><h2>What to watch</h2><span class="muted">minimum {{ min_interval }}s</span></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>On</th><th>Target</th><th class="hide-sm">Retailer</th><th class="hide-sm">Method</th><th>Every (seconds)</th></tr></thead>
+        <thead><tr><th>On</th><th>Target</th><th class="hide-sm">Retailer</th><th class="hide-sm">Method</th><th>Every (seconds)</th><th>Proxy</th></tr></thead>
         <tbody>
         {% for t in options.targets %}
         {% set on = t.name in mon.targets %}
@@ -32,6 +32,12 @@
           <td class="hide-sm mono" style="font-size:12px">{{ t.method }}</td>
           <td><input type="number" name="interval_{{ t.name }}" min="{{ min_interval }}" step="1" style="width:96px"
                      value="{{ val('interval_' ~ t.name, mon.targets.get(t.name) or (60 if t.method == 'http' else 120)) }}"></td>
+          {% set pm = form.get('proxy_' ~ t.name) if form else options.proxies.targets.get(t.name, 'off') %}
+          <td><select name="proxy_{{ t.name }}" aria-label="proxy for {{ t.name }}">
+            <option value="off" {{ 'selected' if pm == 'off' }}>Direct</option>
+            {% if t.method != 'browser' %}<option value="rotate" {{ 'selected' if pm == 'rotate' }}>Rotate</option>{% endif %}
+            <option value="sticky" {{ 'selected' if pm == 'sticky' }}>Same proxy</option>
+          </select></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -66,6 +72,29 @@
       </div>
     </section>
   </div>
+
+  {% set px = options.proxies %}
+  <section class="panel section" id="proxies">
+    <div class="panel-head"><h2>Proxies</h2>
+      {% if px.list_url %}<button type="button" class="btn sm" hx-post="{{ url_for('settings.refresh_proxies') }}" hx-swap="none"
+              hx-disabled-elt="this">Refresh list now</button>{% endif %}</div>
+    <div class="panel-pad form-grid">
+      <label class="field" style="grid-column:1/-1"><span>Proxy list URL</span>
+        <input type="password" name="proxy_list_url" autocomplete="off" value="{{ mask if px.list_url }}"
+               placeholder="https://proxy.webshare.io/api/v2/proxy/list/download/…">
+        <small>{% if px.list_url %}Set{% if proxy_list %}: {{ proxy_list.count }} proxies, fetched {{ proxy_list.fetched|ago }}{% endif %}. Leave as is to keep it.
+          {% else %}One <span class="mono">ip:port:user:pass</span> per line, like Webshare's download link. Then pick a proxy mode per target above.{% endif %}</small></label>
+      {% if px.list_url %}<label class="check"><input type="checkbox" name="clear_proxy_list_url"> Remove the URL</label>{% endif %}
+      <label class="field"><span>Re-download every (hours)</span>
+        <input type="number" name="proxy_refresh_hours" min="1" value="{{ val('proxy_refresh_hours', px.refresh_hours) }}"></label>
+      <label class="field"><span>Daily cap (MB)</span>
+        <input type="number" name="proxy_daily_mb" min="0" value="{{ val('proxy_daily_mb', px.daily_mb) }}">
+        <small>Past it, proxied targets connect directly until midnight. 0: no cap</small></label>
+      <p class="muted" style="grid-column:1/-1;margin:0;font-size:13px"><b>Rotate</b>: a different proxy every check (HTTP targets).
+        <b>Same proxy</b>: keeps one until it's blocked, so cookies stay consistent. A block rests only that proxy, for that retailer,
+        for {{ px.cooldown_minutes }} min (doubling up to {{ px.max_cooldown_minutes }}); the retailer keeps being checked through the others.</p>
+    </div>
+  </section>
 
   <section class="panel section">
     <div class="panel-head"><h2>Backoff and housekeeping</h2></div>

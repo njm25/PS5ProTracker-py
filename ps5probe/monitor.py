@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from . import config
 from .alert import evaluate
 from .challenge import detect
@@ -40,6 +42,7 @@ from .log import ProbeLog, SampleRecord, say
 from .models import Challenge, ParseResult
 from .notify import AMBER, GREEN, GREY, RED, Notifier
 from .parsers import PARSERS, safe_parse
+from .proxies import Pool, Proxy, download, read_cache, save_cache
 
 RELOADED_ENV = "PS5_PROBE_MONITOR_RELOADED"
 CHECK_DAYS = 14
@@ -78,6 +81,7 @@ class TargetState:
     consecutive_errors: int = 0
     next_check: float | None = None
     paused_until: float = 0
+    proxy: str | None = None  # ip:port of the last check's proxy, if any
     # Kept across restarts (with the last signal above):
     signal_key: str | None = None
     alerting: bool = False
@@ -122,7 +126,33 @@ class Monitor:
         self.dir = self.state_path.parent
         self._wake = {t.name: asyncio.Event() for t in self.targets}
         self._force: set[str] = set()  # targets to check now, even if paused
+        self.proxy_modes = {t.name: m for t in self.targets
+                            if (m := next((m for n, m in options.proxies.targets.items()
+                                           if n.lower() == t.name.lower()), None))}
+        self.proxy_cache = self.dir / "proxies.json"
+        self.pool = self._load_pool() if self.proxy_modes else None
+        self._all_resting: set[str] = set()  # retailers whose proxies are all resting (posted once)
+        self._over_budget_day: str | None = None  # the day the daily proxy cap was hit (posted once)
         self._load()
+
+    def _load_pool(self) -> Pool | None:
+        """The proxy list from the cache, or downloaded if the cache is missing, stale or from another URL."""
+        p = self.options.proxies
+        if not p.list_url:
+            say("monitor", "proxies are set for some targets but there's no proxies.list_url: connecting directly")
+            return None
+        cached = read_cache(self.proxy_cache, p.list_url)
+        if cached is None or time.time() - cached[1] > p.refresh_hours * 3600:
+            try:
+                proxies = download(p.list_url)
+                save_cache(self.proxy_cache, p.list_url, proxies)
+                say("monitor", f"downloaded {len(proxies)} proxies")
+                cached = proxies, time.time()
+            except (httpx.HTTPError, ValueError) as ex:
+                say("monitor", f"proxy list download failed: {type(ex).__name__}" + (": using the cached list" if cached else ""))
+        if cached is None:
+            return None
+        return Pool(cached[0], p.cooldown_minutes, p.max_cooldown_minutes)
 
     # --- state file ---
 
@@ -139,6 +169,8 @@ class Monitor:
                           "alert_reason"):
                     setattr(st, k, s.get(k, getattr(st, k)))
                 st.alerting = bool(s.get("alerting"))
+        if self.pool is not None:
+            self.pool.restore(saved.get("proxies") or {})
         for name, r in saved.get("cooldowns", saved.get("retailers", {})).items():
             if name in self.cooldowns:
                 self.cooldowns[name] = Cooldown(**{k: r[k] for k in asdict(Cooldown()) if k in r})
@@ -151,6 +183,7 @@ class Monitor:
             "webhook": bool(self.options.discord.webhook_url),
             "targets": {n: asdict(s) for n, s in self.states.items()},
             "cooldowns": {n: asdict(r) for n, r in self.cooldowns.items()},
+            "proxies": self.pool.dump() | {"modes": self.proxy_modes} if self.pool else None,
         }
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.state_path.with_suffix(".tmp")
@@ -207,6 +240,8 @@ class Monitor:
 
         tasks = [asyncio.create_task(self._poll(t)) for t in self.targets]
         tasks += [asyncio.create_task(self._heartbeat()), asyncio.create_task(self._watch())]
+        if self.pool is not None:
+            tasks.append(asyncio.create_task(self._refresh_proxies()))
         self._save()
         await self._stop.wait()
         for task in tasks:
@@ -235,6 +270,8 @@ class Monitor:
         st = self.states[t.name]
         parse = PARSERS.get(t.parser)
         fetch, skip = build_fetch(t, self.options, self._host, self._closers)
+        mode = self.proxy_modes.get(t.name) if self.pool else None
+        by_proxy: dict[str, Any] = {}  # proxy label -> fetch through it
         if parse is None or fetch is None:
             reason = skip or f"unknown parser '{t.parser}'"
             await self._notify("config", f"{t.name} skipped: {reason}", target=t.name,
@@ -244,17 +281,36 @@ class Monitor:
         if st.last_check and (wait := st.last_check + st.interval - time.time()) > 0:
             await self._nap(st, wait)
         while not self._stop.is_set():
-            until = max(self.cooldowns[t.retailer].cooldown_until, self.cooldowns[t.name].cooldown_until)
+            proxied = bool(mode) and not await self._over_budget()
+            # A retailer-wide cooldown is about our own IP; through proxies, the pool's per-proxy rests apply.
+            scopes = (t.name,) if proxied else (t.retailer, t.name)
+            until = max(self.cooldowns[scope].cooldown_until for scope in scopes)
             if (wait := until - time.time()) > 0:
                 await self._nap(st, wait)
                 continue  # a sibling may have extended the cooldown meanwhile
             if (wait := st.paused_until - time.time()) > 0 and t.name not in self._force:
                 await self._nap(st, wait)
                 continue
+            proxy = None
+            if proxied:
+                proxy = self.pool.pick(t.retailer, t.name, sticky=mode == "sticky")
+                if proxy is None:
+                    await self._all_proxies_resting(t, st)
+                    continue
+                self._all_resting.discard(t.retailer)
+                if proxy.label not in by_proxy:
+                    if mode == "sticky":  # one browser context at a time: drop the one we're leaving
+                        for old in by_proxy.values():
+                            await old[1]()
+                        by_proxy.clear()
+                    closers: list = []
+                    by_proxy[proxy.label] = (build_fetch(t, self.options, self._host, closers, proxy)[0],
+                                             lambda c=closers: asyncio.gather(*(close() for close in c)))
+                    self._closers.extend(closers)
             self._force.discard(t.name)
             started = time.time()
             try:
-                await self._sample(t, st, fetch, parse)
+                await self._sample(t, st, by_proxy[proxy.label][0] if proxy else fetch, parse, proxy)
                 self._record_check(st)
             except Exception as ex:  # never let one bad sample kill the target's loop
                 say(t.name, f"sample failed: {type(ex).__name__}: {ex}")
@@ -274,9 +330,34 @@ class Monitor:
             waiter.cancel()
         self._wake[st.name].clear()
 
-    async def _sample(self, t: Target, st: TargetState, fetch, parse_fn) -> None:
+    async def _over_budget(self) -> bool:
+        """Past the daily cap, proxied targets connect directly until midnight."""
+        cap = self.options.proxies.daily_mb
+        if not cap or self.pool.mb_today() < cap:
+            return False
+        today = datetime.now().date().isoformat()
+        if self._over_budget_day != today:
+            self._over_budget_day = today
+            await self._notify("config", f"{self.pool.mb_today():.0f} MB through the proxies today (cap {cap} MB). "
+                               "Proxied targets connect directly until midnight.", title="Proxy cap reached", color=AMBER)
+        return True
+
+    async def _all_proxies_resting(self, t: Target, st: TargetState) -> None:
+        until = self.pool.next_free(t.retailer)
+        self.cooldowns[t.name].cooldown_until = until  # shows as "cooling down" in the UI
+        if t.retailer not in self._all_resting:
+            self._all_resting.add(t.retailer)
+            text = f"Every proxy is resting for {t.retailer}; the next is free in {round((until - time.time()) / 60)} min."
+            if self.options.discord.notify_blocks:
+                await self._notify("block", text, target=t.name, title=f"{t.retailer}: all proxies blocked", color=RED)
+            else:
+                self._event("block", f"{t.retailer}: all proxies blocked", text, t.name)
+        await self._nap(st, max(1.0, until - time.time()))
+
+    async def _sample(self, t: Target, st: TargetState, fetch, parse_fn, proxy: Proxy | None = None) -> None:
         now = time.time()
         f = await fetch()
+        st.proxy = proxy.label if proxy else None
         challenge = detect(f)
         parse = safe_parse(parse_fn, f.body, t) if challenge is Challenge.NONE \
             else ParseResult.not_found(f"challenge: {challenge}")
@@ -310,6 +391,25 @@ class Monitor:
             self.log.snapshot(t.name, reason, f.body)
             say(t.name, f"{f.status} {f.latency_ms}ms {st.challenge or ''} in_stock={parse.in_stock} "
                         f"[{parse.raw_signal}] {parse.seller} {parse.price} {alert.reason}")
+
+        if proxy is not None:
+            # Through a proxy, a block or a run of failures rests that proxy for this retailer; the next
+            # check uses another, and the retailer itself never pauses.
+            failed = not parse.signal_found or f.status is None or f.status >= 500
+            if challenge not in (Challenge.NONE, Challenge.TIMEOUT):
+                self.pool.record(t.retailer, proxy, f.bytes, ok=False, error=str(challenge))
+                minutes = self.pool.block(t.retailer, proxy, str(challenge))
+                st.blocks += 1
+                self._since_heartbeat[t.name][1] += 1
+                say(t.name, f"proxy {proxy.label} blocked ({challenge}): resting it {minutes} min for {t.retailer}")
+                self._event("proxy", f"{t.retailer}: proxy blocked",
+                            f"{proxy.label}: {challenge}. Resting it for {t.retailer} for {minutes} min.", t.name)
+            elif self.pool.record(t.retailer, proxy, f.bytes, ok=not failed, error=st.error):
+                self._event("proxy", f"{t.retailer}: proxy failing",
+                            f"{proxy.label}: {self.pool.stats[proxy.label].last_error}. Resting it.", t.name)
+            elif not failed:
+                await self._clean(t)
+            return
 
         # A lone timeout is usually the network or a slow page, not a block: it only counts as a failure.
         if challenge not in (Challenge.NONE, Challenge.TIMEOUT):
@@ -381,6 +481,26 @@ class Monitor:
             if r.strikes and time.time() - max(r.last_trip, r.cooldown_until) > 3600:
                 r.strikes = 0
 
+    async def _refresh_proxies(self) -> None:
+        """Re-downloads the proxy list now and then; Webshare replaces dead proxies in it."""
+        url = self.options.proxies.list_url
+        while True:
+            await asyncio.sleep(self.options.proxies.refresh_hours * 3600)
+            try:
+                proxies = await asyncio.to_thread(download, url)
+            except (httpx.HTTPError, ValueError) as ex:
+                say("monitor", f"proxy list refresh failed: {type(ex).__name__}")
+                continue
+            save_cache(self.proxy_cache, url, proxies)
+            self._use_proxies(proxies)
+
+    def _use_proxies(self, proxies: list[Proxy]) -> None:
+        if [p.label for p in proxies] != [p.label for p in self.pool.proxies]:
+            say("monitor", f"proxy list changed: {len(proxies)} proxies")
+            saved = self.pool.dump()
+            self.pool.proxies = proxies
+            self.pool.restore(saved)
+
     async def _heartbeat(self) -> None:
         hours = self.options.monitor.heartbeat_hours
         if hours <= 0:
@@ -417,13 +537,21 @@ class Monitor:
                 return
 
     def _command(self, c: dict[str, Any]) -> None:
-        """check_now / pause [minutes] / resume take "target"; clear_cooldown takes "retailer"."""
+        """check_now / pause [minutes] / resume take "target"; clear_cooldown takes "retailer"; reload_proxies."""
         cmd, name = c["cmd"], c.get("target")
         st = self.states.get(name) if name else None
+        if cmd == "reload_proxies":  # the UI downloaded a fresh list into the cache
+            cached = read_cache(self.proxy_cache, self.options.proxies.list_url or "") if self.pool else None
+            if cached:
+                self._use_proxies(cached[0])
+            self._save()
+            return
         if cmd == "clear_cooldown":
             names = [s.name for s in self.states.values() if s.retailer == c["retailer"]]
             for scope in (c["retailer"], *names):
                 self.cooldowns[scope].cooldown_until, self.cooldowns[scope].strikes = 0, 0
+            if self.pool is not None:
+                self.pool.clear(c["retailer"])
             title = f"Cooldown cleared: {c['retailer']}"
         elif st is None:
             raise KeyError(f"unknown target {name}")

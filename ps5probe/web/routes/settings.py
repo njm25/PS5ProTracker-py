@@ -1,3 +1,4 @@
+import httpx
 from flask import Blueprint, redirect, render_template, request, url_for
 
 from .. import control, data, toast
@@ -11,6 +12,7 @@ def _render(errors: list[str] | None = None, form: dict | None = None):
     return render_template(
         "pages/settings.html", options=options, errors=errors or [], form=form,
         saved=request.args.get("saved"), mask=control.SECRET_MASK, min_interval=control.MIN_INTERVAL,
+        proxy_list=data.proxy_list(),
     )
 
 
@@ -34,3 +36,12 @@ def test_notify():
     return toast("Test message sent to Discord" if ok else "Discord didn't take it: check the webhook", ok=ok,
                  refresh=False)
 
+
+@bp.post("/settings/proxies/refresh")
+def refresh_proxies():
+    try:
+        n = control.refresh_proxies()
+    except (httpx.HTTPError, ValueError) as ex:
+        return toast(f"Couldn't load the proxy list: {type(ex).__name__}" + (f": {ex}" if isinstance(ex, ValueError) else ""),
+                     ok=False, refresh=False)
+    return toast(f"Loaded {n} proxies", refresh=False)

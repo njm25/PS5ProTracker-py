@@ -29,6 +29,8 @@ class FetchResult:
     timed_out: bool = False
     error: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
+    bytes: int = 0  # roughly what came over the wire (browser: content-length of what loaded)
+    proxy: str | None = None  # ip:port, when a proxy was used
 
 
 @dataclass(frozen=True)

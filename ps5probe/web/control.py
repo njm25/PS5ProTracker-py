@@ -10,10 +10,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
-from .. import config
+from .. import config, proxies as proxy_list
 from .data import monitor_dir
 
-COMMANDS = ("check_now", "pause", "resume", "clear_cooldown")
+COMMANDS = ("check_now", "pause", "resume", "clear_cooldown", "reload_proxies")
 MIN_INTERVAL = 5
 SECRET_MASK = "••••••••"  # stands in for a saved secret in the form; sent back unchanged, it means "keep it"
 
@@ -58,13 +58,13 @@ def save_settings(form: dict[str, Any], targets: list[str]) -> list[str]:
             errors.append(f"{label} must be at least {lo}")
         return value
 
-    monitor_targets = {}
-    for name in targets:
+    # A target the form didn't show (the page was opened before it was added) keeps its saved settings.
+    shown = [name for name in targets if f"interval_{name}" in form]
+    monitor_targets = dict((local.get("monitor") or {}).get("targets") or {})
+    for name in shown:
         on = form.get(f"on_{name}") == "on"
         interval = number(f"interval_{name}", int, MIN_INTERVAL, f"{name} interval") if on else 0
         monitor_targets[name] = interval or 0
-    if not any(monitor_targets.values()):
-        errors.append("Turn on at least one target.")
 
     discord = dict(local.get("discord") or {})
     discord["mention"] = (form.get("mention") or "").strip()
@@ -87,6 +87,22 @@ def save_settings(form: dict[str, Any], targets: list[str]) -> list[str]:
         "jitter": number("jitter", float, 0, "Jitter"),
     })
     max_price = number("max_price", Decimal, 1, "Max price")
+
+    proxies = dict(local.get("proxies") or {})
+    url = (form.get("proxy_list_url") or "").strip()
+    if form.get("clear_proxy_list_url") == "on":
+        proxies["list_url"] = None
+    elif url and url != SECRET_MASK:
+        if not url.startswith("https://"):
+            errors.append("The proxy list URL should start with https://")
+        proxies["list_url"] = url
+    if "proxy_refresh_hours" in form:
+        proxies["refresh_hours"] = number("proxy_refresh_hours", int, 1, "Proxy list refresh")
+    if "proxy_daily_mb" in form:
+        proxies["daily_mb"] = number("proxy_daily_mb", int, 0, "Daily proxy cap")
+    # "off" is written out too, so it overrides a mode set in config.json.
+    proxies["targets"] = {**(proxies.get("targets") or {}),
+                          **{name: form.get(f"proxy_{name}") or "off" for name in shown}}
     if errors:
         return errors
     if monitor["max_cooldown_minutes"] < monitor["cooldown_minutes"]:
@@ -94,11 +110,15 @@ def save_settings(form: dict[str, Any], targets: list[str]) -> list[str]:
     if monitor["jitter"] >= 1:
         return ["Jitter is a fraction: use something like 0.15."]
 
-    new = {**local, "max_price": float(max_price), "discord": discord, "monitor": monitor}
+    new = {**local, "max_price": float(max_price), "discord": discord, "monitor": monitor, "proxies": proxies}
     try:
-        config.from_dict(config._merge(config._read(config.ROOT / "config.json"), new))
+        options = config.from_dict(config._merge(config._read(config.ROOT / "config.json"), new))
     except (config.ConfigError, TypeError, ValueError) as ex:
         return [str(ex)]
+    if not options.monitor.targets:
+        return ["Turn on at least one target."]
+    if options.proxies.targets and not options.proxies.list_url:
+        return ["Add the proxy list URL before turning proxies on for a target."]
     _write(new)
     return []
 
@@ -110,3 +130,13 @@ def _write(new: dict[str, Any]) -> None:
     os.chmod(tmp, 0o600)
     os.replace(tmp, LOCAL)
 
+
+def refresh_proxies() -> int:
+    """Downloads the proxy list into the monitor's cache and tells the monitor. Returns how many proxies."""
+    url = config.load().proxies.list_url
+    if not url:
+        raise ValueError("no proxy list URL saved")
+    found = proxy_list.download(url)
+    proxy_list.save_cache(monitor_dir() / "proxies.json", url, found)
+    command("reload_proxies")
+    return len(found)

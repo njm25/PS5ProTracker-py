@@ -50,6 +50,8 @@
       <dl class="kv">
         <dt>Interval</dt><dd>every {{ t.interval|duration }}</dd>
         <dt>Method</dt><dd class="mono">{{ target.method if target else '?' }}</dd>
+        {% set pm = m.proxy_modes.get(t.name) %}
+        <dt>Connection</dt><dd>{{ {'rotate': 'rotating proxies', 'sticky': 'one proxy at a time'}.get(pm, 'direct') }}{% if pm and t.raw.get('proxy') %} · last via <span class="mono">{{ t.raw.proxy }}</span>{% endif %}</dd>
         <dt>Parser</dt><dd class="mono">{{ target.parser if target else '?' }}</dd>
         <dt>Sellers</dt><dd>{{ target.allowed_sellers|join(', ') if target and target.allowed_sellers else 'any' }}</dd>
         <dt>Max price</dt><dd>{{ max_price|money }} (alerts at or under)</dd>

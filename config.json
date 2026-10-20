@@ -27,7 +27,12 @@
       "samsclub-page": 180,
       "target-page": 120,
       "gamestop-page": 120,
-      "newegg-page": 120
+      "newegg-page": 120,
+      "abt-page": 120,
+      "lenovo-api": 60,
+      "antonline-page": 180,
+      "staples-page": 120,
+      "verizon-page": 120
     },
     "headless": false,
     "jitter": 0.15,
@@ -144,6 +149,83 @@
       "allowed_sellers": ["Newegg"],
       "settle_ms": 3000,
       "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 8 }
+    },
+    {
+      "name": "abt-page",
+      "retailer": "Abt",
+      "method": "http",
+      "url": "https://www.abt.com/Sony-PlayStation-5-Pro-Game-Console-in-White-1000050805/p/239803.html",
+      "parser": "schema-offer",
+      "params": {
+        "default_seller": "Abt"
+      },
+      "allowed_sellers": [
+        "Abt",
+        "Abt Electronics"
+      ]
+    },
+    {
+      "name": "lenovo-api",
+      "retailer": "Lenovo",
+      "method": "http",
+      "url": "https://openapi.lenovo.com/us/en/inventory/front/query",
+      "product_url": "https://www.lenovo.com/us/en/p/accessories-and-software/game-consoles/gaming-consoles_gaming-consoles/78814903",
+      "parser": "lenovo-inventory",
+      "params": {
+        "product_code": "78814903",
+        "list_price": "899.99"
+      },
+      "post_body": "{\"zipCode\":\"60654\",\"inventoryMsgTranslateFlag\":true,\"viewFlag\":false,\"requestSource\":82,\"needLeadtimeFlag\":false,\"checkBestBuyMapping\":false,\"productParams\":[{\"productCode\":\"78814903\",\"productType\":\"8\",\"quantity\":1,\"activityType\":\"\",\"isOutlet\":false,\"maxCvLeadtime\":\"\",\"isPre\":false,\"subProductList\":null,\"desktopBundleFlag\":false,\"skuId\":null,\"phisicalProduct\":false,\"originProductCode\":\"\",\"preConfig\":null,\"hasGiftFlag\":false}]}",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://www.lenovo.com",
+        "Referer": "https://www.lenovo.com/us/en/p/accessories-and-software/game-consoles/gaming-consoles_gaming-consoles/78814903"
+      },
+      "allowed_sellers": [
+        "Lenovo"
+      ]
+    },
+    {
+      "name": "antonline-page",
+      "retailer": "Antonline",
+      "method": "browser",
+      "url": "https://www.antonline.com/Sony/Electronics/Gaming_Devices/Gaming_Consoles/1512822",
+      "parser": "schema-offer",
+      "params": {
+        "default_seller": "antonline"
+      },
+      "allowed_sellers": [
+        "antonline"
+      ]
+    },
+    {
+      "name": "staples-page",
+      "retailer": "Staples",
+      "method": "http",
+      "http2": true,
+      "url": "https://www.staples.com/sony-ps5-pro-console-2tb-ssd-white-1000046529/product_24617563",
+      "parser": "schema-offer",
+      "params": {
+        "default_seller": "Staples"
+      },
+      "allowed_sellers": [
+        "Staples"
+      ],
+      "max_price": 909.99
+    },
+    {
+      "name": "verizon-page",
+      "retailer": "Verizon",
+      "method": "http",
+      "url": "https://www.verizon.com/products/sony-playstation-5-pro-console-2tb/",
+      "parser": "verizon-page",
+      "params": {
+        "sku": "1000046529"
+      },
+      "allowed_sellers": [
+        "Verizon"
+      ]
     }
   ],
   "profiles": {

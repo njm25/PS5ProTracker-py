@@ -7,7 +7,7 @@ import json
 import statistics
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -52,6 +52,43 @@ class TargetView:
 
 
 @dataclass
+class ProxyView:
+    label: str
+    requests: int
+    failures: int
+    blocks: int
+    mb_today: float
+    last_used: float
+    last_error: str | None
+    resting: list[tuple[str, float]]  # (retailer, until)
+
+
+def _proxies(state: dict[str, Any], now: float) -> list[ProxyView]:
+    """Busiest first. Only proxies the monitor has used show up."""
+    p = state.get("proxies") or {}
+    today = date.today().isoformat()
+    rests: dict[str, list[tuple[str, float]]] = {}
+    for retailer, by in (p.get("rests") or {}).items():
+        for label, r in by.items():
+            if r.get("until", 0) > now:
+                rests.setdefault(label, []).append((retailer, r["until"]))
+    rows = [ProxyView(label, s.get("requests", 0), s.get("failures", 0), s.get("blocks", 0),
+                      round(s.get("bytes_day", 0) / 1e6, 1) if s.get("day") == today else 0.0,
+                      s.get("last_used", 0), s.get("last_error"), sorted(rests.get(label, [])))
+            for label, s in (p.get("stats") or {}).items()]
+    return sorted(rows, key=lambda r: -r.requests)
+
+
+def proxy_list() -> dict[str, Any] | None:
+    """How many proxies the cached list has and when it was fetched (never the list itself)."""
+    try:
+        d = json.loads((monitor_dir() / "proxies.json").read_text(encoding="utf-8"))
+        return {"count": len(d["proxies"]), "fetched": d["fetched"]}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+@dataclass
 class MonitorView:
     service: str
     updated: float | None
@@ -59,6 +96,8 @@ class MonitorView:
     targets: list[TargetView]
     retailers: dict[str, dict[str, Any]]
     webhook: bool
+    proxies: list[ProxyView] = field(default_factory=list)
+    proxy_modes: dict[str, str] = field(default_factory=dict)
 
     @property
     def healthy(self) -> bool:
@@ -103,8 +142,11 @@ def monitor(with_stats: bool = True) -> MonitorView:
     intervals = {name: t.get("interval") for name, t in state.get("targets", {}).items()}
     stats = check_stats(intervals=intervals) if with_stats else {}
     targets = []
+    modes = (state.get("proxies") or {}).get("modes") or {}
     for t in state.get("targets", {}).values():
-        until = max(cooldowns.get(scope, {}).get("cooldown_until", 0) for scope in (t["retailer"], t["name"]))
+        # Through proxies, the retailer-wide cooldown (our own IP's) doesn't hold a target back.
+        scopes = (t["name"],) if t["name"] in modes else (t["retailer"], t["name"])
+        until = max(cooldowns.get(scope, {}).get("cooldown_until", 0) for scope in scopes)
         kind, label = _classify(t, until, now)
         targets.append(TargetView(t, kind, label, until, stats.get(t["name"], {})))
     return MonitorView(
@@ -114,6 +156,8 @@ def monitor(with_stats: bool = True) -> MonitorView:
         targets=targets,
         retailers=cooldowns,
         webhook=bool(state.get("webhook")),
+        proxies=_proxies(state, now),
+        proxy_modes=(state.get("proxies") or {}).get("modes") or {},
     )
 
 
@@ -216,7 +260,7 @@ def events(limit: int = 50, kind: str | None = None, target: str | None = None,
     return out
 
 
-EVENT_KINDS = ["alert", "gone", "change", "block", "resume", "command", "start", "stop", "reload", "heartbeat", "config"]
+EVENT_KINDS = ["alert", "gone", "change", "block", "proxy", "resume", "command", "start", "stop", "reload", "heartbeat", "config"]
 
 
 # --- snapshots and probe runs ---

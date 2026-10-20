@@ -51,6 +51,12 @@ class Target:
     params: dict[str, str] = field(default_factory=dict)
     # HTTP only: extra request headers.
     headers: dict[str, str] = field(default_factory=dict)
+    # HTTP only: send this as a POST body instead of a GET (e.g. a JSON query).
+    post_body: str | None = None
+    # HTTP only: speak HTTP/2, for sites (Staples) whose bot check rejects HTTP/1.1 clients.
+    http2: bool = False
+    # Overrides the top-level max_price for this target, e.g. a retailer that lists a few dollars over.
+    max_price: Decimal | None = None
     # Seller names (as the parser reports them) that count as the retailer itself.
     allowed_sellers: list[str] = field(default_factory=list)
     ramp: Ramp = field(default_factory=Ramp)
@@ -90,6 +96,24 @@ class Monitor:
     headless: bool | None = None
 
 
+PROXY_MODES = ("rotate", "sticky")
+
+
+@dataclass
+class Proxies:
+    # A URL that returns the list, one ip:port:user:pass per line (e.g. Webshare's download link). A secret.
+    list_url: str | None = None
+    refresh_hours: int = 6
+    # Target name -> "rotate" (a different proxy each check; HTTP only) or "sticky" (keep one until it's
+    # blocked). Targets not named here connect directly.
+    targets: dict[str, str] = field(default_factory=dict)
+    # A block on one proxy pauses only that proxy, for that retailer; doubling per further block.
+    cooldown_minutes: int = 30
+    max_cooldown_minutes: int = 240
+    # Past this many MB through the proxies in a day, proxied targets connect directly until midnight. 0: no cap.
+    daily_mb: int = 5000
+
+
 @dataclass
 class Options:
     output_dir: str = "runs"
@@ -105,6 +129,7 @@ class Options:
     max_run_minutes: int | None = None
     discord: Discord = field(default_factory=Discord)
     monitor: Monitor = field(default_factory=Monitor)
+    proxies: Proxies = field(default_factory=Proxies)
     targets: list[Target] = field(default_factory=list)
     # Named runs (--profile): which targets to run and what to override on them. Kept as raw dicts.
     profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -128,16 +153,27 @@ def from_dict(raw: dict[str, Any]) -> Options:
     targets = [_target(t, default_ramp) for t in raw.pop("targets", None) or []]
     discord = _build(Discord, raw.pop("discord", None) or {}, "discord")
     monitor = _build(Monitor, raw.pop("monitor", None) or {}, "monitor")
+    proxies = _build(Proxies, raw.pop("proxies", None) or {}, "proxies")
     if "max_price" in raw:
         raw["max_price"] = Decimal(str(raw["max_price"]))
     options = _build(
-        Options, {**raw, "discord": discord, "monitor": monitor, "targets": targets}, "config"
+        Options, {**raw, "discord": discord, "monitor": monitor, "proxies": proxies, "targets": targets}, "config"
     )
     # An interval of 0 or null turns a target off (config.local.json can't delete config.json's keys).
     options.monitor.targets = {n: int(s) for n, s in options.monitor.targets.items() if s}
     unknown = [n for n in options.monitor.targets if _find({t.name: t for t in targets}, n) is None]
     if unknown:
         raise ConfigError(f"monitor.targets names unknown target(s) {', '.join(unknown)}")
+    # Like intervals, "off" or null turns a proxy setting off.
+    options.proxies.targets = {n: m for n, m in options.proxies.targets.items() if m and m != "off"}
+    for name, mode in options.proxies.targets.items():
+        t = _find({t.name: t for t in targets}, name)
+        if t is None:
+            raise ConfigError(f"proxies.targets names unknown target {name}")
+        if mode not in PROXY_MODES:
+            raise ConfigError(f"proxies.targets.{name}: '{mode}' should be one of {', '.join(PROXY_MODES)} or off")
+        if mode == "rotate" and t.method == "browser":
+            raise ConfigError(f"proxies.targets.{name}: browser targets can't rotate (a browser per proxy); use sticky")
     return options
 
 
@@ -165,6 +201,8 @@ def _target(raw: dict[str, Any], default_ramp: dict[str, Any]) -> Target:
     raw = dict(raw)
     where = f"targets.{raw.get('name', '?')}"
     ramp = _build(Ramp, {**default_ramp, **(raw.pop("ramp", None) or {})}, f"{where}.ramp")
+    if raw.get("max_price") is not None:
+        raw["max_price"] = Decimal(str(raw["max_price"]))
     return _build(Target, {**raw, "ramp": ramp}, where)
 
 

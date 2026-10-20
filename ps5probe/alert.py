@@ -25,8 +25,9 @@ def evaluate(p: ParseResult, t: Target, max_price: Decimal) -> AlertDecision:
         return AlertDecision(False, f"seller '{p.seller}' is not the retailer")
     if p.price is None:
         return AlertDecision(False, "price unknown")
-    if p.price > max_price:
-        return AlertDecision(False, f"price {p.price} > {max_price}")
+    limit = t.max_price if t.max_price is not None else max_price
+    if p.price > limit:
+        return AlertDecision(False, f"price {p.price} > {limit}")
     if p.condition is not None and _NOT_NEW.search(p.condition):
         return AlertDecision(False, f"condition '{p.condition}'")
     return AlertDecision(True, "ALERT")

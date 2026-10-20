@@ -18,6 +18,7 @@ from typing import Any
 from . import config
 from .config import Options, Target
 from .fetchers import BrowserFetcher, BrowserHost, HttpFetcher
+from .proxies import Proxy
 from .log import ProbeLog, csv_bool, say
 from .parsers import PARSERS
 from .runner import Fetch, Runner, TargetSummary
@@ -141,18 +142,20 @@ async def _run(options: Options, targets: list[Target], run_dir: Path, once: boo
 
 
 def build_fetch(
-    t: Target, options: Options, host: BrowserHost, closers: list[Callable[[], Awaitable[None]]]
+    t: Target, options: Options, host: BrowserHost, closers: list[Callable[[], Awaitable[None]]],
+    proxy: Proxy | None = None,
 ) -> tuple[Fetch | None, str | None]:
     """The fetch function for a target, or None and the reason it's skipped."""
     match t.method:
         case "http":
-            http = HttpFetcher(options)
+            http = HttpFetcher(options, proxy, http2=t.http2)
             closers.append(http.close)
             # {nonce} makes every URL unique, to get past a shared cache.
-            return lambda: http.fetch(t.url.replace("{nonce}", str(int(time.time() * 1000))), t.headers), None
+            return lambda: http.fetch(t.url.replace("{nonce}", str(int(time.time() * 1000))), t.headers,
+                                      t.post_body), None
 
         case "browser":
-            browser = BrowserFetcher(host, options)
+            browser = BrowserFetcher(host, options, proxy)
             closers.append(browser.close)
             return lambda: browser.fetch(t), None
 

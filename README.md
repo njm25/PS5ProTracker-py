@@ -100,6 +100,19 @@ sudo systemctl daemon-reload && sudo systemctl enable --now ps5probe-monitor
 journalctl -u ps5probe-monitor -f
 ```
 
+### Proxies
+
+Settings → Proxies takes a list URL (e.g. Webshare's download link: one `ip:port:user:pass` per line; kept in `config.local.json`). The monitor caches the list in `runs/.monitor/proxies.json` (mode 600) and re-downloads it every `refresh_hours`. Each target picks **Direct**, **Rotate** (a different proxy per check; HTTP targets) or **Same proxy** (keeps one, so cookies stay consistent, until it's blocked). Through a proxy, a block rests only that proxy for that retailer (`proxies.cooldown_minutes`, doubling), three failures in a row rest it too, and the retailer keeps being checked through the others. A proxied browser skips images, fonts and video. The System page shows each proxy's checks, blocks, MB today and rests.
+
+Tested 10-20 with 20 Webshare static residential proxies (US home ISPs):
+
+| Target | Through the proxies |
+|---|---|
+| `psdirect-api-bust` | 20/20 clean, ~0.8s, ~7 KB a check |
+| `samsclub-page` (browser) | 3/3 clean (the VM's own IP gets "not a robot"); ~5 MB a check even with images skipped |
+| `walmart-page` | blocked: 20/20 HTTP and 2/2 browser (PerimeterX knows these IPs) |
+| `bestbuy-page` (browser) | blocked 3/3: Akamai resets the browser regardless of IP |
+
 ## How the ramp and backoff work
 
 Each target walks its `intervals_seconds` from slowest to fastest, taking `samples_per_step` samples at each step (±15% jitter). A target **trips** on the first challenge or block, or after `max_consecutive_errors` (3) plain failures in a row.
@@ -140,7 +153,8 @@ The browser targets use a fresh, throwaway Chromium profile, never your signed-i
 | `ps5probe/cli.py` | arguments, target selection, runs targets side by side, writes the summary |
 | `ps5probe/config.py` | settings dataclasses, config loading, ramp and profile merging |
 | `ps5probe/runner.py` | one target's ramp, trip and backoff logic |
-| `ps5probe/fetchers.py` | plain HTTP (httpx), shared Playwright Chromium |
+| `ps5probe/fetchers.py` | plain HTTP (httpx), shared Playwright Chromium, either through a proxy |
+| `ps5probe/proxies.py` | proxy list download and cache, the pool: rotate/sticky picks and per-retailer rests |
 | `ps5probe/parsers.py` | one stock parser per retailer |
 | `ps5probe/parsing.py` | JSON, price, HTML and schema.org helpers the parsers share |
 | `ps5probe/challenge.py` | bot-protection detection |

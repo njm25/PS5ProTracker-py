@@ -221,3 +221,41 @@ def test_parser_crash_becomes_not_found():
     r = run("bestbuy-page", "<html></html>", target())  # missing sku param raises inside
     assert not r.signal_found
     assert r.note.startswith("parser error")
+
+
+def lenovo_body(num, status=2):
+    return ('{"success":true,"status":200,"data":[{"productCode":"78814903","status":%d,"currentNum":%d}]}'
+            % (status, num))
+
+
+@pytest.mark.parametrize("num, in_stock", [(0, False), (3, True)])
+def test_lenovo_inventory(num, in_stock):
+    t = Target(name="l", parser="lenovo-inventory", params={"product_code": "78814903", "list_price": "899.99"},
+               allowed_sellers=["Lenovo"])
+    r = run("lenovo-inventory", lenovo_body(num), t)
+    assert (r.signal_found, r.in_stock, r.seller, r.price) == (True, in_stock, "Lenovo", Decimal("899.99"))
+    assert evaluate(r, t, MAX_PRICE).eligible is in_stock
+    assert not run("lenovo-inventory", '{"success":false,"msg":"bad"}', t).signal_found
+
+
+def verizon_body(in_stock):
+    v = "true" if in_stock else "false"
+    flight = ('"inventoryDetails":{"dFillInventory":{"isAvailable":%s,"isBackorder":false,"isInStock":%s,'
+              '"qtyAvailable":%d}},"storages":[{"isInStock":%s,"price":699.99,"sorId":"1000046529","skuId":"sku1"}]'
+              % (v, v, 5 if in_stock else 0, v))
+    return '<script>self.__next_f.push([1,"%s"])</script>' % flight.replace('"', '\\"')
+
+
+@pytest.mark.parametrize("in_stock", [False, True])
+def test_verizon_page(in_stock):
+    t = Target(name="v", parser="verizon-page", params={"sku": "1000046529"}, allowed_sellers=["Verizon"])
+    r = run("verizon-page", verizon_body(in_stock), t)
+    assert (r.signal_found, r.in_stock, r.price) == (True, in_stock, Decimal("699.99"))
+    assert evaluate(r, t, MAX_PRICE).eligible is in_stock
+    assert not run("verizon-page", "<html></html>", t).signal_found
+
+
+def test_a_target_can_raise_its_own_max_price():
+    r = ParseResult(True, True, "jsonld=InStock", "Staples", Decimal("906.99"), "New")
+    assert not evaluate(r, Target(allowed_sellers=["Staples"]), MAX_PRICE).eligible
+    assert evaluate(r, Target(allowed_sellers=["Staples"], max_price=Decimal("909.99")), MAX_PRICE).eligible

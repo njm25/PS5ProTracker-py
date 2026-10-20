@@ -43,3 +43,33 @@
     <div class="value"><span class="pill {{ 'active' if vm.xvfb else 'inactive' }}">{{ 'Xvfb up' if vm.xvfb else 'not running' }}</span></div></div>
   <div class="stat"><div class="label">VM up for</div><div class="value">{{ vm.uptime|duration }}</div></div>
 </div>
+
+{% if m.proxies or proxy_list %}
+<section class="panel section" style="margin-top:16px">
+  <div class="panel-head"><h2>Proxies</h2>
+    <span class="muted">{{ proxy_list.count if proxy_list else 0 }} in the list · {{ m.proxies|length }} used ·
+      {{ '%.1f'|format(m.proxies|sum(attribute='mb_today')) }} MB today{{ ' of ' ~ proxy_cap ~ ' MB cap' if proxy_cap }}</span></div>
+  {% if m.proxy_modes %}<div class="panel-pad muted" style="padding-bottom:0;font-size:13px">
+    {% for name, mode in m.proxy_modes.items() %}<span class="mono">{{ name }}</span> {{ 'rotates' if mode == 'rotate' else 'keeps one' }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Proxy</th><th>Checks</th><th class="hide-sm">Failed</th><th>Blocks</th><th class="hide-sm">Today</th><th>Resting for</th><th class="hide-sm">Last error</th></tr></thead>
+      <tbody>
+      {% for p in m.proxies %}
+      <tr>
+        <td class="mono" style="font-size:12.5px">{{ p.label }}<div class="muted" style="font-size:11.5px">{{ p.last_used|ago }}</div></td>
+        <td>{{ p.requests }}</td>
+        <td class="hide-sm">{{ p.failures }}</td>
+        <td>{{ p.blocks }}</td>
+        <td class="hide-sm">{{ p.mb_today }} MB</td>
+        <td>{% for retailer, until in p.resting %}<div style="font-size:12.5px">{{ retailer }} <span class="muted" data-until="{{ until }}"></span></div>{% else %}<span class="muted">–</span>{% endfor %}</td>
+        <td class="hide-sm muted" style="font-size:12px">{{ p.last_error or '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">None used yet. Pick a proxy mode for a target in Settings.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
