@@ -1,15 +1,12 @@
-"""Ways to fetch a target: plain HTTP, a shared Playwright Chromium, and Walmart.io request signing."""
+"""Ways to fetch a target: plain HTTP and a shared Playwright Chromium."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import time
 from collections.abc import Iterable
 
 import httpx
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
@@ -159,24 +156,3 @@ class BrowserFetcher:
                 await context.close()
             except PlaywrightError:
                 pass
-
-
-class WalmartSigner:
-    """Walmart.io affiliate auth headers: an RSA-SHA256 signature over "consumerId\\ntimestampMs\\nkeyVersion\\n"."""
-
-    def __init__(self, consumer_id: str, key_version: str, private_key_pem: bytes):
-        self._consumer_id = consumer_id
-        self._key_version = key_version
-        self._key = serialization.load_pem_private_key(private_key_pem, password=None)
-
-    def headers(self, now_ms: int | None = None) -> dict[str, str]:
-        ts = str(now_ms if now_ms is not None else int(time.time() * 1000))
-        payload = f"{self._consumer_id}\n{ts}\n{self._key_version}\n".encode()
-        signature = self._key.sign(payload, padding.PKCS1v15(), hashes.SHA256())
-        return {
-            "WM_CONSUMER.ID": self._consumer_id,
-            "WM_CONSUMER.INTIMESTAMP": ts,
-            "WM_SEC.KEY_VERSION": self._key_version,
-            "WM_SEC.AUTH_SIGNATURE": base64.b64encode(signature).decode(),
-            "Accept": "application/json",
-        }

@@ -12,12 +12,6 @@
     "on_challenge": "stop",
     "cooldown_minutes": 60
   },
-  "credentials": {
-    "bestbuy_api_key": null,
-    "walmart_consumer_id": null,
-    "walmart_key_version": "1",
-    "walmart_private_key_path": null
-  },
   "discord": {
     "webhook_url": null,
     "mention": "@here",
@@ -27,6 +21,7 @@
   "monitor": {
     "targets": {
       "psdirect-api-bust": 30,
+      "psdirect-api": 60,
       "psdirect-page": 60,
       "walmart-page": 60,
       "samsclub-page": 180,
@@ -41,15 +36,6 @@
     "heartbeat_hours": 24
   },
   "targets": [
-    {
-      "name": "bestbuy-api",
-      "retailer": "Best Buy",
-      "method": "bestbuy_api",
-      "url": "https://api.bestbuy.com/v1/products/6601524.json?apiKey={bestbuy_api_key}&show=sku,name,salePrice,onlineAvailability,orderable,condition,inStoreAvailability",
-      "product_url": "https://www.bestbuy.com/product/playstation-5-pro-console/6601524",
-      "parser": "bestbuy-api",
-      "ramp": { "intervals_seconds": [60, 30, 10, 5, 2], "samples_per_step": 15 }
-    },
     {
       "name": "bestbuy-page",
       "retailer": "Best Buy",
@@ -73,16 +59,6 @@
       "wait_for_selector": "#availability, #add-to-cart-button, #outOfStock",
       "settle_ms": 6000,
       "ramp": { "intervals_seconds": [600, 300], "samples_per_step": 4 }
-    },
-    {
-      "name": "walmart-api",
-      "retailer": "Walmart",
-      "method": "walmart_affiliate_api",
-      "url": "https://developer.api.walmart.com/api-proxy/service/affil/product/v2/items/11839818124",
-      "product_url": "https://www.walmart.com/ip/PLAYSTATION-PS5-PRO-CONSOLE/11839818124",
-      "parser": "walmart-affiliate-api",
-      "allowed_sellers": ["Walmart.com"],
-      "ramp": { "intervals_seconds": [60, 30, 10, 5], "samples_per_step": 15 }
     },
     {
       "name": "walmart-page",

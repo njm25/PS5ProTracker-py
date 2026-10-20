@@ -14,7 +14,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(data, "monitor_dir", lambda: tmp_path / ".monitor")
     monkeypatch.setattr(control, "monitor_dir", lambda: tmp_path / ".monitor")
     monkeypatch.setattr(control, "LOCAL", tmp_path / "config.local.json")
-    monkeypatch.setattr(control, "WALMART_KEY", tmp_path / "keys" / "walmart.pem")
     monkeypatch.setattr(system, "unit_state", lambda unit: "active")
     app.config["TESTING"] = True
     return app.test_client()
@@ -129,41 +128,6 @@ def test_saved_settings_still_load():
     # Sanity: the shipped config plus an "everything off but one" local file is valid.
     raw = config._merge(config._read(config.ROOT / "config.json"), {"monitor": {"targets": {"walmart-page": 0}}})
     assert "walmart-page" not in config.from_dict(raw).monitor.targets
-
-
-def test_api_keys_save_and_api_targets_need_them(client, tmp_path):
-    r = client.post("/settings", data=settings_form(**{"on_bestbuy-api": "on", "interval_bestbuy-api": "30"}))
-    assert r.status_code == 400 and "bestbuy-api needs a Best Buy API key" in r.get_data(as_text=True)
-
-    r = client.post("/settings", data=settings_form(**{"on_bestbuy-api": "on", "interval_bestbuy-api": "30",
-                                                       "bestbuy_api_key": "abc123", "walmart_consumer_id": " id-1 ",
-                                                       "walmart_key_version": "2"}))
-    assert r.status_code == 302
-    creds = json.loads((tmp_path / "config.local.json").read_text())["credentials"]
-    assert creds == {"bestbuy_api_key": "abc123", "walmart_consumer_id": "id-1", "walmart_key_version": "2"}
-
-    # The mask keeps the saved key; "remove" clears it.
-    client.post("/settings", data=settings_form(bestbuy_api_key=control.SECRET_MASK))
-    assert json.loads((tmp_path / "config.local.json").read_text())["credentials"]["bestbuy_api_key"] == "abc123"
-    client.post("/settings", data=settings_form(clear_bestbuy_api_key="on"))
-    assert json.loads((tmp_path / "config.local.json").read_text())["credentials"]["bestbuy_api_key"] is None
-
-
-def test_walmart_key_pair(client, tmp_path):
-    assert client.post("/settings/walmart-key").status_code == 302
-    key = tmp_path / "keys" / "walmart.pem"
-    assert key.stat().st_mode & 0o777 == 0o600
-    local = json.loads((tmp_path / "config.local.json").read_text())
-    assert local["credentials"]["walmart_private_key_path"] == str(key)
-    assert control.public_key(str(key)).startswith("-----BEGIN PUBLIC KEY-----")
-    assert control.public_key(str(tmp_path / "nope.pem")) is None
-
-
-def test_api_test_needs_keys_and_an_api_target():
-    assert control.test_api("psdirect-page") == (False, "psdirect-page isn't an API target")
-    c = config.Credentials()
-    t = next(t for t in config.load().targets if t.name == "walmart-api")
-    assert control.missing_credentials(t, c) == "a Walmart consumer ID"
 
 
 def test_coverage_counts_time_paused_after_a_block():

@@ -10,14 +10,14 @@ import subprocess
 import sys
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from . import config
 from .config import Options, Target
-from .fetchers import BrowserFetcher, BrowserHost, HttpFetcher, WalmartSigner
+from .fetchers import BrowserFetcher, BrowserHost, HttpFetcher
 from .log import ProbeLog, csv_bool, say
 from .parsers import PARSERS
 from .runner import Fetch, Runner, TargetSummary
@@ -155,34 +155,6 @@ def build_fetch(
             browser = BrowserFetcher(host, options)
             closers.append(browser.close)
             return lambda: browser.fetch(t), None
-
-        case "bestbuy_api":
-            key = options.credentials.bestbuy_api_key
-            if not key:
-                return None, "no credentials.bestbuy_api_key"
-            http = HttpFetcher(options)
-            closers.append(http.close)
-
-            async def fetch_bestbuy():
-                r = await http.fetch(t.url.replace("{bestbuy_api_key}", key))
-                return replace(
-                    r,
-                    final_url=r.final_url.replace(key, "REDACTED"),
-                    error=r.error.replace(key, "REDACTED") if r.error else None,
-                )
-
-            return fetch_bestbuy, None
-
-        case "walmart_affiliate_api":
-            c = options.credentials
-            if not c.walmart_consumer_id or not c.walmart_private_key_path:
-                return None, "no credentials.walmart_consumer_id / walmart_private_key_path"
-            signer = WalmartSigner(
-                c.walmart_consumer_id, c.walmart_key_version, Path(c.walmart_private_key_path).read_bytes()
-            )
-            http = HttpFetcher(options)
-            closers.append(http.close)
-            return lambda: http.fetch(t.url, signer.headers()), None
 
         case _:
             return None, f"unsupported method {t.method}"

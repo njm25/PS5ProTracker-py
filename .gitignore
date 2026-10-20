@@ -9,6 +9,5 @@ dist/
 # Probe output and secrets
 runs/
 config.local.json
-keys/
 .env
 *.pem

@@ -92,23 +92,6 @@ def bestbuy_page(body: str, t: Target) -> ParseResult:
     )
 
 
-@parser("bestbuy-api")
-def bestbuy_api(body: str, t: Target) -> ParseResult:
-    """Best Buy Products API (developer.bestbuy.com). The API covers Best Buy's own catalog."""
-    root = parse_json(body)
-    err = as_str(get(root, "errorMessage")) or as_str(get(root, "error", "message"))
-    if err is not None:
-        return ParseResult.not_found(f"api error: {err}")
-    online = as_bool(get(root, "onlineAvailability"))
-    if online is None:
-        return ParseResult.not_found("no onlineAvailability")
-    orderable = as_str(get(root, "orderable"))
-    return ParseResult(
-        True, online, f"onlineAvailability={online}; orderable={orderable}",
-        "Best Buy", as_price(get(root, "salePrice")), as_str(get(root, "condition")),
-    )
-
-
 @parser("walmart-nextdata")
 def walmart_nextdata(body: str, t: Target) -> ParseResult:
     """Walmart and Sam's Club product pages (same Next.js platform): props.pageProps.initialData.data.product.
@@ -144,21 +127,7 @@ def walmart_nextdata(body: str, t: Target) -> ParseResult:
     )
 
 
-@parser("walmart-affiliate-api")
-def walmart_affiliate_api(body: str, t: Target) -> ParseResult:
-    """Walmart.io affiliate Product Lookup (v2/items/{id}). Field names unverified against a live response."""
-    root = parse_json(body)
-    err = next(iter(items(get(root, "errors"))), None)
-    if isinstance(err, dict):
-        return ParseResult.not_found(f"api error: {as_str(get(err, 'message'))}")
-    online = as_bool(get(root, "availableOnline"))
-    if online is None:
-        return ParseResult.not_found("no availableOnline")
-    stock = as_str(get(root, "stock"))
-    return ParseResult(
-        True, online and (stock or "").lower() != "not available", f"availableOnline={online}; stock={stock}",
-        as_str(get(root, "sellerInfo")), as_price(get(root, "salePrice")), as_str(get(root, "condition")),
-    )
+
 
 
 @parser("psdirect-api")

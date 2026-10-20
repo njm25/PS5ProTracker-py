@@ -111,16 +111,9 @@ These count as a challenge or block: 429, 403, 412, 435, timeouts, Cloudflare "J
 
 ## Config
 
-Settings live in `config.json` at the repo root. Put secrets in `config.local.json` next to it (git-ignored; objects merge key by key, lists replace), or in environment variables like `PS5_PROBE__CREDENTIALS__BESTBUY_API_KEY`. The web UI's Settings page can set the API keys too, and can make the Walmart.io key pair (saved to `keys/walmart.pem`, git-ignored).
+Settings live in `config.json` at the repo root. Put secrets (the Discord webhook) in `config.local.json` next to it (git-ignored; objects merge key by key, lists replace), or in environment variables like `PS5_PROBE__DISCORD__WEBHOOK_URL`. The web UI's Settings page writes that file.
 
-```json
-{ "credentials": {
-  "bestbuy_api_key": "...",
-  "walmart_consumer_id": "...", "walmart_key_version": "1", "walmart_private_key_path": "C:/keys/walmart.pem"
-} }
-```
-
-A target's `ramp` overrides only the fields it sets; the rest come from `default_ramp`. API targets without credentials are skipped. Unknown setting names are an error, so typos don't pass silently.
+A target's `ramp` overrides only the fields it sets; the rest come from `default_ramp`. Unknown setting names are an error, so typos don't pass silently.
 
 | Target | Method | Signal | Status |
 |---|---|---|---|
@@ -129,9 +122,8 @@ A target's `ramp` overrides only the fields it sets; the rest come from `default
 | `psdirect-page` | HTTP | schema.org microdata `availability` | clean to 5s |
 | `samsclub-page` | Playwright | `__NEXT_DATA__` `availabilityStatus` + `sellerType` | HTTP: **PerimeterX 412 after 2 hits at 15s** on 10-16, and after 5–11 hits at 180s in the monitor (7% coverage). Moved to the browser 10-20; its "not a robot" page is a 200 there |
 | `walmart-page` | HTTP | same as Sam's; flags a redirect to another item | clean to 15s on 10-16; one 412 on 10-15 |
-| `walmart-api` | Walmart.io affiliate API, RSA-signed | `availableOnline`, `stock`, `sellerInfo` | needs keys; field names unverified |
-| `bestbuy-api` | Best Buy Products API | `onlineAvailability`, `orderable` | needs a key |
-| `bestbuy-page` | Playwright | `data-testid="pdp-…-6601524"` button | Akamai resets both headless **and headed**; use the API |
+| `bestbuy-page` | Playwright | `data-testid="pdp-…-6601524"` button | Akamai resets both headless **and headed**. The official Products API and Walmart's affiliate API were removed on 10-20: Best Buy turns down free email sign-ups and Walmart's is for affiliates only |
+| (no target) | HTTP `/api/3.0/priceBlocks?skus=` | `buttonState` | **not usable**: answered without a key on 10-20 but said `ADD_TO_CART` while the page showed Sold Out; about a dozen requests to it and `button-state` got the VM's IP reset by Akamai |
 | `target-page` | Playwright | Target buy buttons; empty buy box = out of stock | clean headless at 120s; in-stock markup unverified |
 | `gamestop-page` | Playwright | New JSON-LD offer (SKU 416188); button only when a condition is selected | **headed: clean at 30s**; headless gets Cloudflare 403 |
 | `newegg-page` | Playwright | `__initialState__.ItemDetail` + seller must be Newegg | **headed: clean at 30s**; headless gets Cloudflare 403 |
@@ -148,7 +140,7 @@ The browser targets use a fresh, throwaway Chromium profile, never your signed-i
 | `ps5probe/cli.py` | arguments, target selection, runs targets side by side, writes the summary |
 | `ps5probe/config.py` | settings dataclasses, config loading, ramp and profile merging |
 | `ps5probe/runner.py` | one target's ramp, trip and backoff logic |
-| `ps5probe/fetchers.py` | plain HTTP (httpx), shared Playwright Chromium, Walmart.io signing |
+| `ps5probe/fetchers.py` | plain HTTP (httpx), shared Playwright Chromium |
 | `ps5probe/parsers.py` | one stock parser per retailer |
 | `ps5probe/parsing.py` | JSON, price, HTML and schema.org helpers the parsers share |
 | `ps5probe/challenge.py` | bot-protection detection |

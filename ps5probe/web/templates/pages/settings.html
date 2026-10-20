@@ -27,7 +27,6 @@
           <td><input type="checkbox" name="on_{{ t.name }}" {{ checked('on_' ~ t.name, on) }} aria-label="watch {{ t.name }}"></td>
           <td><a href="{{ url_for('retailers.detail', name=t.name) }}">{{ t.name }}</a>
             <div class="show-sm muted" style="font-size:12px">{{ t.retailer }} · {{ t.method }}</div>
-            {% if missing.get(t.name) %}<div class="muted" style="font-size:12px">needs <a href="#api-keys">API keys</a></div>{% endif %}
             {% if not t.enabled %}<div class="muted" style="font-size:12px">off for probe runs</div>{% endif %}</td>
           <td class="hide-sm">{{ t.retailer }}</td>
           <td class="hide-sm mono" style="font-size:12px">{{ t.method }}</td>
@@ -67,50 +66,6 @@
       </div>
     </section>
   </div>
-
-  {% set creds = options.credentials %}
-  <section class="panel section" id="api-keys">
-    <div class="panel-head"><h2>Retailer API keys</h2><span class="muted">Save before testing</span></div>
-    <div class="panel-pad keys">
-      <div class="form-grid" style="grid-template-columns:1fr;align-content:start">
-        <h3>Best Buy {% for t in api_targets if t.method == 'bestbuy_api' %}
-          {% if missing[t.name] %}<span class="pill out">not set</span>{% else %}<span class="pill instock">set</span>
-          <button type="button" class="btn sm" hx-post="{{ url_for('settings.test_api', name=t.name) }}" hx-swap="none"
-                  hx-disabled-elt="this">Test</button>{% endif %}{% endfor %}</h3>
-        <ol><li>Sign up at <a href="https://developer.bestbuy.com" target="_blank" rel="noopener">developer.bestbuy.com</a></li>
-          <li>Paste the key from your dashboard here and save</li>
-          <li>Turn on <span class="mono">bestbuy-api</span> above</li></ol>
-        <label class="field"><span>API key</span>
-          <input type="password" name="bestbuy_api_key" autocomplete="off" value="{{ mask if creds.bestbuy_api_key }}">
-          <small>{{ 'Set. Leave as is to keep it.' if creds.bestbuy_api_key else 'Free; up to 50,000 calls a day.' }}</small></label>
-        {% if creds.bestbuy_api_key %}<label class="check"><input type="checkbox" name="clear_bestbuy_api_key"> Remove the key</label>{% endif %}
-      </div>
-
-      <div class="form-grid" style="grid-template-columns:1fr;align-content:start">
-        <h3>Walmart {% for t in api_targets if t.method == 'walmart_affiliate_api' %}
-          {% if missing[t.name] %}<span class="pill out">needs {{ missing[t.name][2:] }}</span>{% else %}<span class="pill instock">set</span>
-          <button type="button" class="btn sm" hx-post="{{ url_for('settings.test_api', name=t.name) }}" hx-swap="none"
-                  hx-disabled-elt="this">Test</button>{% endif %}{% endfor %}</h3>
-        <ol><li>Sign up at <a href="https://walmart.io" target="_blank" rel="noopener">walmart.io</a> and join the Affiliate API program</li>
-          <li>Generate a key pair here and upload the public key there</li>
-          <li>Paste the consumer ID and key version it gives you, save, and turn on <span class="mono">walmart-api</span></li></ol>
-        <label class="field"><span>Consumer ID</span>
-          <input type="text" name="walmart_consumer_id" autocomplete="off" value="{{ val('walmart_consumer_id', creds.walmart_consumer_id or '') }}"
-                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label>
-        <label class="field"><span>Key version</span>
-          <input type="text" name="walmart_key_version" style="width:96px" value="{{ val('walmart_key_version', creds.walmart_key_version) }}"></label>
-        <div class="field"><span>Key pair</span>
-          {% if walmart_public_key %}
-          <textarea class="pubkey" readonly onclick="this.select()" aria-label="Walmart public key">{{ walmart_public_key }}</textarea>
-          <small>{{ 'New key made. ' if key_generated }}Upload this public key to Walmart.io (click to select it). The private key stays on the VM in <span class="mono">{{ creds.walmart_private_key_path }}</span>.</small>
-          {% else %}<small>No key yet.</small>{% endif %}
-          <div><button type="submit" class="btn sm" formaction="{{ url_for('settings.walmart_key') }}" formnovalidate
-            {% if walmart_public_key %}data-confirm="Replace it? Walmart.io needs the new one"{% endif %}>
-            {{ 'Make a new key pair' if walmart_public_key else 'Generate key pair' }}</button></div>
-        </div>
-      </div>
-    </div>
-  </section>
 
   <section class="panel section">
     <div class="panel-head"><h2>Backoff and housekeeping</h2></div>

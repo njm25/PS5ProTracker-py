@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ENV_PREFIX = "PS5_PROBE__"
 
 ON_CHALLENGE = ("stop", "cooldown_then_hold")
-METHODS = ("http", "browser", "bestbuy_api", "walmart_affiliate_api")
+METHODS = ("http", "browser")
 
 
 class ConfigError(Exception):
@@ -65,14 +65,6 @@ class Target:
 
 
 @dataclass
-class Credentials:
-    bestbuy_api_key: str | None = None
-    walmart_consumer_id: str | None = None
-    walmart_key_version: str = "1"
-    walmart_private_key_path: str | None = None
-
-
-@dataclass
 class Discord:
     # Channel webhook (Server settings > Integrations > Webhooks). Unset: notifications only go to the console.
     webhook_url: str | None = None
@@ -111,7 +103,6 @@ class Options:
     # Consecutive non-challenge failures (5xx, network errors, unparsable pages) that count as a block.
     max_consecutive_errors: int = 3
     max_run_minutes: int | None = None
-    credentials: Credentials = field(default_factory=Credentials)
     discord: Discord = field(default_factory=Discord)
     monitor: Monitor = field(default_factory=Monitor)
     targets: list[Target] = field(default_factory=list)
@@ -135,13 +126,12 @@ def from_dict(raw: dict[str, Any]) -> Options:
     # A target's ramp only overrides the fields it sets; the rest come from default_ramp.
     default_ramp = raw.pop("default_ramp", None) or {}
     targets = [_target(t, default_ramp) for t in raw.pop("targets", None) or []]
-    credentials = _build(Credentials, raw.pop("credentials", None) or {}, "credentials")
     discord = _build(Discord, raw.pop("discord", None) or {}, "discord")
     monitor = _build(Monitor, raw.pop("monitor", None) or {}, "monitor")
     if "max_price" in raw:
         raw["max_price"] = Decimal(str(raw["max_price"]))
     options = _build(
-        Options, {**raw, "credentials": credentials, "discord": discord, "monitor": monitor, "targets": targets}, "config"
+        Options, {**raw, "discord": discord, "monitor": monitor, "targets": targets}, "config"
     )
     # An interval of 0 or null turns a target off (config.local.json can't delete config.json's keys).
     options.monitor.targets = {n: int(s) for n, s in options.monitor.targets.items() if s}
