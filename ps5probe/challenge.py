@@ -34,9 +34,10 @@ def detect(r: FetchResult) -> Challenge:
     if "validateCaptcha" in body or "make sure you're not a robot" in lbody:
         return Challenge.AMAZON_CAPTCHA
 
-    # Walmart/Sam's: a redirect to /blocked, the "Robot or human?" page, or a 412 whose JSON
-    # body carries PerimeterX's redirectUrl/blockScript.
-    if "/blocked?" in url or "robot or human" in t or (error_status and '"blockScript"' in body):
+    # Walmart/Sam's: a redirect to /blocked, the "Robot or human?" page, Sam's "Let us know you're not
+    # a robot" page (a 200 in a browser), or a 412 whose JSON body carries PerimeterX's redirectUrl/blockScript.
+    if "/blocked?" in url or "robot or human" in t or "not a robot" in t \
+            or (error_status and '"blockScript"' in body):
         return Challenge.WALMART_BLOCK
 
     if "px-captcha" in body and (error_status or "access to this page has been denied" in t):

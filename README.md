@@ -53,7 +53,7 @@ Output goes to `runs/<timestamp>[-profile]/` in the checkout, wherever you run f
 
 - **Dashboard:**
   - a banner saying whether anything is in stock (with buy links) or the monitor is down
-  - one card per target: status, price and seller, raw signal, a countdown to the next check, a 1-hour latency sparkline, 24-hour uptime and median latency
+  - one card per target: status, price and seller, raw signal, a countdown to the next check, a 1-hour latency sparkline, 24-hour coverage (the share of the day a good check vouched for, counting time paused after blocks) and median latency
   - buttons on each card: **check now**, **pause** (1 hour, or until resumed), **clear cooldown**
   - a health strip and the latest activity
 - **Retailer pages:** a 6h / 24h / 7-day status strip and latency chart, that target's events, and the setup. Saved pages are shown in a sandboxed frame with scripts and outside requests blocked.
@@ -81,7 +81,7 @@ sudo install -m 440 deploy/ps5probe.sudoers /etc/sudoers.d/ps5probe && sudo visu
 - **Stock alert** (pings `discord.mention`, default `@here`): a target starts meeting the alert rule. Sent once per restock, even across restarts.
 - **Stock gone**: an alerting target stops meeting the rule.
 - **Signal changed** (`notify_changes`): the stock signal, seller or price changed without meeting the rule. Nothing has been seen in stock yet, so this is the safety net for a parser misreading a restock.
-- **Blocked / resumed** (`notify_blocks`): a challenge, or `max_consecutive_errors` failures in a row, pauses every target of that retailer for `cooldown_minutes`, doubling on each further block up to `max_cooldown_minutes`. A clean hour resets it.
+- **Blocked / resumed** (`notify_blocks`): a bot challenge pauses every target of that retailer (it's about our IP); `max_consecutive_errors` timeouts or errors in a row pause only that target. Either lasts `cooldown_minutes`, doubling on each further block up to `max_cooldown_minutes`. A clean hour resets it. PS Direct's API stops answering after about 480 requests (80 min at 10s, 10-20), hence its 30s interval.
 - **Started / stopped**, and a **still running** summary every `heartbeat_hours`.
 
 Put the webhook in `config.local.json` (`{"discord": {"webhook_url": "https://discord.com/api/webhooks/..."}}`) and check it with `python -m ps5probe --test-notify` or the web UI button. Without one, messages only go to the console.
@@ -127,7 +127,7 @@ A target's `ramp` overrides only the fields it sets; the rest come from `default
 | `psdirect-api` | HTTP JSON | `stock.stockLevelStatus` | clean to 1s, but ~98% Akamai cache hits (`max-age=120`), so up to 2+ min stale |
 | `psdirect-api-bust` | HTTP JSON, unique URL + no-cache | same | **reaches origin every time**; clean at 5s; the one to use |
 | `psdirect-page` | HTTP | schema.org microdata `availability` | clean to 5s |
-| `samsclub-page` | HTTP | `__NEXT_DATA__` `availabilityStatus` + `sellerType` | **PerimeterX 412 after 2 hits at 15s** on 10-16 |
+| `samsclub-page` | Playwright | `__NEXT_DATA__` `availabilityStatus` + `sellerType` | HTTP: **PerimeterX 412 after 2 hits at 15s** on 10-16, and after 5–11 hits at 180s in the monitor (7% coverage). Moved to the browser 10-20; its "not a robot" page is a 200 there |
 | `walmart-page` | HTTP | same as Sam's; flags a redirect to another item | clean to 15s on 10-16; one 412 on 10-15 |
 | `walmart-api` | Walmart.io affiliate API, RSA-signed | `availableOnline`, `stock`, `sellerInfo` | needs keys; field names unverified |
 | `bestbuy-api` | Best Buy Products API | `onlineAvailability`, `orderable` | needs a key |

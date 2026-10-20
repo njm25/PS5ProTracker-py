@@ -164,3 +164,11 @@ def test_api_test_needs_keys_and_an_api_target():
     c = config.Credentials()
     t = next(t for t in config.load().targets if t.name == "walmart-api")
     assert control.missing_credentials(t, c) == "a Walmart consumer ID"
+
+
+def test_coverage_counts_time_paused_after_a_block():
+    # Good checks every 10s for 10 min, then nothing for 10 min: about half covered.
+    now = 1_000_000.0
+    good = [now - 1200 + i * 10 for i in range(60)]
+    assert data._coverage(good, good[0], now, 10) == 52  # the last check vouches for 30s more
+    assert data._coverage(good, good[0], now, None) is None

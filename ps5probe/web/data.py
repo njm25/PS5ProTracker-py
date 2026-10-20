@@ -98,11 +98,13 @@ def monitor(with_stats: bool = True) -> MonitorView:
     except (OSError, ValueError):
         state = {}
     now = time.time()
-    retailers = state.get("retailers", {})
-    stats = check_stats() if with_stats else {}
+    # Cooldowns are per retailer (bot challenges) or per target (timeouts); older states only had retailers.
+    cooldowns = state.get("cooldowns", state.get("retailers", {}))
+    intervals = {name: t.get("interval") for name, t in state.get("targets", {}).items()}
+    stats = check_stats(intervals=intervals) if with_stats else {}
     targets = []
     for t in state.get("targets", {}).values():
-        until = retailers.get(t["retailer"], {}).get("cooldown_until", 0)
+        until = max(cooldowns.get(scope, {}).get("cooldown_until", 0) for scope in (t["retailer"], t["name"]))
         kind, label = _classify(t, until, now)
         targets.append(TargetView(t, kind, label, until, stats.get(t["name"], {})))
     return MonitorView(
@@ -110,7 +112,7 @@ def monitor(with_stats: bool = True) -> MonitorView:
         updated=state.get("updated"),
         started=state.get("started"),
         targets=targets,
-        retailers=retailers,
+        retailers=cooldowns,
         webhook=bool(state.get("webhook")),
     )
 
@@ -145,8 +147,17 @@ def checks(hours: float = 24, target: str | None = None) -> list[tuple]:
     return out
 
 
-def check_stats(hours: float = 24) -> dict[str, dict[str, Any]]:
-    """Per target: checks, ok %, median latency, and the last hour's latencies for a sparkline."""
+COVER_INTERVALS = 3  # a good check vouches for the next 3 intervals
+
+
+def check_stats(hours: float = 24, intervals: dict[str, int | None] | None = None) -> dict[str, dict[str, Any]]:
+    """Per target: checks, coverage %, median latency, and the last hour's latencies for a sparkline.
+
+    Coverage is the share of the window (from the target's first check in it) that a good check vouched for.
+    Unlike "% of checks that worked", it counts the time spent paused after a block.
+    """
+    intervals = intervals or {}
+    now = time.time()
     by_target: dict[str, list[tuple]] = {}
     for r in checks(hours):
         by_target.setdefault(r[1], []).append(r)
@@ -157,11 +168,19 @@ def check_stats(hours: float = 24) -> dict[str, dict[str, Any]]:
         lat = [r[3] for r in ok if r[3] is not None]
         out[name] = {
             "checks": len(rows),
-            "uptime": round(100 * len(ok) / len(rows)) if rows else None,
+            "coverage": _coverage([r[0] for r in ok], rows[0][0], now, intervals.get(name)),
             "p50": round(statistics.median(lat)) if lat else None,
             "spark": [r[3] if r[4] is not None else None for r in rows if r[0] >= hour_ago][-60:],
         }
     return out
+
+
+def _coverage(good: list[float], start: float, now: float, interval: int | None) -> int | None:
+    if not interval or now - start < interval:
+        return None
+    reach = COVER_INTERVALS * interval
+    covered = sum(min(b - a, reach) for a, b in zip(good, good[1:] + [now]))
+    return min(100, round(100 * covered / (now - start)))
 
 
 def sparkline(values: list[int | None], width: int = 120, height: int = 28) -> str:

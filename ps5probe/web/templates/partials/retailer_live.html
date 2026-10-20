@@ -17,7 +17,7 @@
       <div class="metric"><div class="label">Checked</div><div class="value">{{ t.last_check|ago }}</div></div>
       <div class="metric"><div class="label">HTTP</div><div class="value">{{ t.challenge or t.status or '–' }}</div></div>
       <div class="metric"><div class="label">Latency</div><div class="value">{{ t.latency_ms ~ 'ms' if t.latency_ms else '–' }}</div></div>
-      <div class="metric"><div class="label">Uptime 24h</div><div class="value">{{ t.stats.uptime ~ '%' if t.stats.get('uptime') is not none else '–' }}</div></div>
+      <div class="metric"><div class="label" title="share of the last 24h with fresh data">Coverage 24h</div><div class="value">{{ t.stats.coverage ~ "%" if t.stats.get("coverage") is not none else "–" }}</div></div>
       <div class="metric"><div class="label">Checks 24h</div><div class="value">{{ t.stats.get('checks', 0) }}</div></div>
       <div class="metric"><div class="label">Blocks</div><div class="value">{{ t.blocks }}</div></div>
       <div class="metric"><div class="label">Last change</div><div class="value">{{ t.last_change|ago }}</div></div>

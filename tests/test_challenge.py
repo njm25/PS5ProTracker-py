@@ -50,3 +50,9 @@ def test_timeout_counts_as_block():
 
 def test_status_429_is_rate_limited():
     assert detect(r(429, "slow down")) is Challenge.RATE_LIMITED
+
+
+def test_samsclub_robot_page_in_a_browser():
+    body = "<html><head><title>Let us know you're not a robot - Sam's Club</title></head>" \
+           '<script id="blockScript">px-captcha</script></html>'
+    assert detect(r(200, body)) is Challenge.WALMART_BLOCK

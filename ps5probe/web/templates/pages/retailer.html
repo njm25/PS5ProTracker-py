@@ -55,7 +55,7 @@
         <dt>Max price</dt><dd>{{ max_price|money }} (alerts at or under)</dd>
         <dt>URL</dt><dd class="mono" style="font-size:11.5px">{{ target.url if target else '' }}</dd>
         {% set siblings = m.targets|selectattr("retailer", "equalto", t.retailer)|rejectattr("name", "equalto", t.name)|list %}
-        {% if siblings %}<dt>Shares blocks with</dt><dd>{% for s in siblings %}<a href="{{ url_for('retailers.detail', name=s.name) }}">{{ s.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+        {% if siblings %}<dt title="a bot challenge pauses the whole retailer; timeouts only pause this target">Shares bot blocks with</dt><dd>{% for s in siblings %}<a href="{{ url_for('retailers.detail', name=s.name) }}">{{ s.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
       </dl>
     </div>
   </section>

@@ -26,7 +26,7 @@
   },
   "monitor": {
     "targets": {
-      "psdirect-api-bust": 10,
+      "psdirect-api-bust": 30,
       "psdirect-page": 60,
       "walmart-page": 60,
       "samsclub-page": 180,
@@ -129,11 +129,12 @@
     {
       "name": "samsclub-page",
       "retailer": "Sam's Club",
-      "method": "http",
+      "method": "browser",
       "url": "https://www.samsclub.com/ip/PlayStation-5-Pro-Console-2-TB/18717057017",
       "parser": "walmart-nextdata",
       "params": { "item_id": "18717057017" },
-      "allowed_sellers": ["Sam's Club", "INTERNAL"]
+      "allowed_sellers": ["Sam's Club", "INTERNAL"],
+      "settle_ms": 4000
     },
     {
       "name": "target-page",

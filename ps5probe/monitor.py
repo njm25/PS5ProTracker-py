@@ -1,11 +1,12 @@
 """Phase 2: polls monitor.targets forever at fixed intervals and posts to Discord.
 
 Posts a stock alert (with a ping) when a target starts meeting the alert rule, and quieter messages
-when a stock signal changes, when it stops meeting the rule, and when a retailer blocks us. A block
-pauses every target of that retailer; each further block in a row doubles the pause.
+when a stock signal changes, when it stops meeting the rule, and when a retailer blocks us. A bot
+challenge pauses every target of that retailer, since it's about our IP; a run of timeouts or errors
+pauses only that target. Each further block in a row doubles the pause.
 
 Everything lives under runs/.monitor/, for the web UI:
-- state.json: the latest per target and retailer; reloaded on restart so a restart neither re-alerts
+- state.json: the latest per target, and cooldowns per retailer or target; reloaded on restart so a restart neither re-alerts
   nor skips a cooldown.
 - events.jsonl: one line per alert, change, block, resume, start/stop, command; whether Discord took it.
 - checks-YYYYMMDD.csv: one short row per check, kept CHECK_DAYS days.
@@ -85,7 +86,8 @@ class TargetState:
 
 
 @dataclass
-class RetailerState:
+class Cooldown:
+    """Backoff for a scope: a retailer (bot challenges) or a single target (timeouts and errors)."""
     strikes: int = 0
     cooldown_until: float = 0
     last_trip: float = 0
@@ -115,7 +117,7 @@ class Monitor:
             t.name: TargetState(t.name, t.retailer, intervals[t.name.lower()], t.product_url or t.url)
             for t in self.targets
         }
-        self.retailers = {t.retailer: RetailerState() for t in self.targets}
+        self.cooldowns = {t.retailer: Cooldown() for t in self.targets} | {t.name: Cooldown() for t in self.targets}
         self._since_heartbeat = {t.name: [0, 0] for t in self.targets}  # checks, blocks
         self.dir = self.state_path.parent
         self._wake = {t.name: asyncio.Event() for t in self.targets}
@@ -137,9 +139,9 @@ class Monitor:
                           "alert_reason"):
                     setattr(st, k, s.get(k, getattr(st, k)))
                 st.alerting = bool(s.get("alerting"))
-        for name, r in saved.get("retailers", {}).items():
-            if name in self.retailers:
-                self.retailers[name] = RetailerState(**{k: r[k] for k in asdict(RetailerState()) if k in r})
+        for name, r in saved.get("cooldowns", saved.get("retailers", {})).items():
+            if name in self.cooldowns:
+                self.cooldowns[name] = Cooldown(**{k: r[k] for k in asdict(Cooldown()) if k in r})
 
     def _save(self) -> None:
         state = {
@@ -148,7 +150,7 @@ class Monitor:
             "updated": time.time(),
             "webhook": bool(self.options.discord.webhook_url),
             "targets": {n: asdict(s) for n, s in self.states.items()},
-            "retailers": {n: asdict(r) for n, r in self.retailers.items()},
+            "cooldowns": {n: asdict(r) for n, r in self.cooldowns.items()},
         }
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.state_path.with_suffix(".tmp")
@@ -211,9 +213,16 @@ class Monitor:
             task.cancel()
         # Loops also exit by themselves once _stop is set; never let one stuck task block a reload.
         await asyncio.wait(tasks, timeout=30)
-        for close in self._closers:
+        # Newest first, so tabs close before the browser does; Playwright can hang on close, so cap each.
+        for close in reversed(self._closers):
+            closing = asyncio.ensure_future(close())
             try:
-                await close()
+                done, _ = await asyncio.wait({closing}, timeout=10)
+                if not done:
+                    closing.cancel()
+                    say("monitor", "close timed out; moving on")
+                else:
+                    closing.result()
             except Exception as ex:  # e.g. the browser already died with the display
                 say("monitor", f"close failed: {type(ex).__name__}: {ex}")
         self._save()
@@ -235,8 +244,8 @@ class Monitor:
         if st.last_check and (wait := st.last_check + st.interval - time.time()) > 0:
             await self._nap(st, wait)
         while not self._stop.is_set():
-            r = self.retailers[t.retailer]
-            if (wait := r.cooldown_until - time.time()) > 0:
+            until = max(self.cooldowns[t.retailer].cooldown_until, self.cooldowns[t.name].cooldown_until)
+            if (wait := until - time.time()) > 0:
                 await self._nap(st, wait)
                 continue  # a sibling may have extended the cooldown meanwhile
             if (wait := st.paused_until - time.time()) > 0 and t.name not in self._force:
@@ -304,12 +313,13 @@ class Monitor:
 
         # A lone timeout is usually the network or a slow page, not a block: it only counts as a failure.
         if challenge not in (Challenge.NONE, Challenge.TIMEOUT):
-            await self._trip(t, str(challenge))
+            await self._trip(t, str(challenge), whole_retailer=True)
             return
         failed = not parse.signal_found or f.status is None or f.status >= 500
         st.consecutive_errors = st.consecutive_errors + 1 if failed else 0
         if st.consecutive_errors >= self.options.max_consecutive_errors:
-            await self._trip(t, f"{st.consecutive_errors} failures in a row (last: {st.error or f.status})")
+            await self._trip(t, f"{st.consecutive_errors} failures in a row (last: {st.error or f.status})",
+                             whole_retailer=False)
         elif not failed:
             await self._clean(t)
 
@@ -336,8 +346,8 @@ class Monitor:
         if changed:
             st.last_change = time.time()
 
-    async def _trip(self, t: Target, reason: str) -> None:
-        r = self.retailers[t.retailer]
+    async def _trip(self, t: Target, reason: str, whole_retailer: bool) -> None:
+        r = self.cooldowns[t.retailer if whole_retailer else t.name]
         st = self.states[t.name]
         st.blocks += 1
         self._since_heartbeat[t.name][1] += 1
@@ -348,27 +358,28 @@ class Monitor:
         minutes = min(m.cooldown_minutes * 2 ** (r.strikes - 1), m.max_cooldown_minutes)
         r.cooldown_until, r.last_trip, r.recovering = time.time() + minutes * 60, time.time(), True
         for s in self.states.values():
-            if s.retailer == t.retailer:
+            if s.name == t.name or (whole_retailer and s.retailer == t.retailer):
                 s.consecutive_errors = 0
-        say(t.name, f"BLOCKED: {reason}. Pausing {t.retailer} for {minutes} min.")
-        text = f"{t.name}: {reason}. Pausing all {t.retailer} checks for {minutes} min."
+        paused = f"all {t.retailer} checks" if whole_retailer else t.name
+        say(t.name, f"BLOCKED: {reason}. Pausing {paused} for {minutes} min.")
+        text = f"{t.name}: {reason}. Pausing {paused} for {minutes} min."
         if self.options.discord.notify_blocks:
             await self._notify("block", text, target=t.name, title=f"{t.retailer}: blocked", color=RED)
         else:
             self._event("block", f"{t.retailer}: blocked", text, t.name)
 
     async def _clean(self, t: Target) -> None:
-        r = self.retailers[t.retailer]
-        if r.recovering:
-            r.recovering = False
-            text = f"{t.name} is getting clean responses again."
-            if self.options.discord.notify_blocks:
-                await self._notify("resume", text, target=t.name, title=f"{t.retailer}: resumed", color=GREY)
-            else:
-                self._event("resume", f"{t.retailer}: resumed", text, t.name)
-        # A clean hour after the last block resets the backoff.
-        if r.strikes and time.time() - max(r.last_trip, r.cooldown_until) > 3600:
-            r.strikes = 0
+        for r in (self.cooldowns[t.retailer], self.cooldowns[t.name]):
+            if r.recovering:
+                r.recovering = False
+                text = f"{t.name} is getting clean responses again."
+                if self.options.discord.notify_blocks:
+                    await self._notify("resume", text, target=t.name, title=f"{t.retailer}: resumed", color=GREY)
+                else:
+                    self._event("resume", f"{t.retailer}: resumed", text, t.name)
+            # A clean hour after the last block resets the backoff.
+            if r.strikes and time.time() - max(r.last_trip, r.cooldown_until) > 3600:
+                r.strikes = 0
 
     async def _heartbeat(self) -> None:
         hours = self.options.monitor.heartbeat_hours
@@ -410,9 +421,9 @@ class Monitor:
         cmd, name = c["cmd"], c.get("target")
         st = self.states.get(name) if name else None
         if cmd == "clear_cooldown":
-            r = self.retailers[c["retailer"]]
-            r.cooldown_until, r.strikes = 0, 0
             names = [s.name for s in self.states.values() if s.retailer == c["retailer"]]
+            for scope in (c["retailer"], *names):
+                self.cooldowns[scope].cooldown_until, self.cooldowns[scope].strikes = 0, 0
             title = f"Cooldown cleared: {c['retailer']}"
         elif st is None:
             raise KeyError(f"unknown target {name}")

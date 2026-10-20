@@ -82,7 +82,7 @@
       {% if note %}<div class="card-note">{{ note }}</div>{% endif %}
       <div class="card-metrics">
         <div class="metric"><div class="label">Checked</div><div class="value">{{ t.last_check|ago }}</div></div>
-        <div class="metric"><div class="label">Uptime</div><div class="value">{{ t.stats.uptime ~ '%' if t.stats.get('uptime') is not none else '–' }}</div></div>
+        <div class="metric"><div class="label" title="share of the last 24h with fresh data">Coverage</div><div class="value">{{ t.stats.coverage ~ "%" if t.stats.get("coverage") is not none else "–" }}</div></div>
         <div class="metric"><div class="label">p50</div><div class="value">{{ t.stats.p50 ~ 'ms' if t.stats.get('p50') else '–' }}</div></div>
         {{ ui.ring(t) }}
       </div>

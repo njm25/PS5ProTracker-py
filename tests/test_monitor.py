@@ -72,7 +72,7 @@ def test_signal_change_that_does_not_alert_is_a_quiet_message(monitor):
 
 
 def test_blocks_pause_the_retailer_and_back_off(monitor):
-    retailer = monitor.retailers["PS Direct"]
+    retailer = monitor.cooldowns["PS Direct"]
     sample(monitor, 429, "")
     first = retailer.cooldown_until
     assert retailer.strikes == 1
@@ -116,8 +116,23 @@ def test_a_lone_timeout_is_a_failure_not_a_block(monitor):
 
     t = monitor.targets[0]
     asyncio.run(monitor._sample(t, monitor.states["ps"], timeout, PARSERS[t.parser]))
-    assert monitor.retailers["PS Direct"].strikes == 0
+    assert monitor.cooldowns["PS Direct"].strikes == 0
     assert monitor.states["ps"].consecutive_errors == 1
+
+
+def test_repeated_timeouts_pause_only_that_target(monitor):
+    async def timeout():
+        return FetchResult(None, 20000, "", "https://shop.example/p", timed_out=True, error="timeout")
+
+    t = monitor.targets[0]
+    for _ in range(monitor.options.max_consecutive_errors):
+        asyncio.run(monitor._sample(t, monitor.states["ps"], timeout, PARSERS[t.parser]))
+    assert monitor.cooldowns["ps"].cooldown_until > time.time()
+    assert monitor.cooldowns["PS Direct"].cooldown_until == 0  # the rest of the retailer keeps going
+    assert "Pausing ps for 30 min" in monitor.notifier.sent[-1]["text"]
+
+    monitor._command({"cmd": "clear_cooldown", "retailer": "PS Direct"})
+    assert monitor.cooldowns["ps"].cooldown_until == 0
 
 
 def test_flapping_cross_check_is_not_a_change(monitor):
@@ -141,7 +156,7 @@ def test_commands(monitor):
     monitor._command({"cmd": "check_now", "target": "ps"})
     assert "ps" in monitor._force
 
-    r = monitor.retailers["PS Direct"]
+    r = monitor.cooldowns["PS Direct"]
     r.cooldown_until, r.strikes = time.time() + 600, 2
     monitor._command({"cmd": "clear_cooldown", "retailer": "PS Direct"})
     assert (r.cooldown_until, r.strikes) == (0, 0)
