@@ -55,11 +55,22 @@
       const left = Math.max(0, next - now);
       const fill = ring.querySelector(".fill");
       const c = Number(fill.dataset.c);
+      // A ring just swapped in by a live update jumps straight to where it is; only
+      // rings already on screen animate, so one target's check doesn't restart them all.
+      const fresh = !fill.dataset.shown;
+      if (fresh) fill.style.transition = "none";
       fill.style.strokeDashoffset = String(c * Math.min(1, left / total));
+      if (fresh) {
+        fill.getBoundingClientRect(); // apply the jump before turning the animation back on
+        fill.style.transition = "";
+        fill.dataset.shown = "1";
+      }
       ring.querySelector("span").textContent = span(Math.ceil(left));
     }
   }
   setInterval(tick, 1000);
+  // Before the browser paints the new panel, so fresh rings never show empty for a frame.
+  document.addEventListener("htmx:afterSwap", tick);
   document.addEventListener("htmx:afterSettle", (e) => {
     tick();
     // Logs read bottom-up: keep them scrolled to the newest line.

@@ -32,7 +32,13 @@
       "lenovo-api": 60,
       "antonline-page": 180,
       "staples-page": 120,
-      "verizon-page": 120
+      "verizon-page": 120,
+      "target-store-apalachee": 60,
+      "target-store-fsu": 60,
+      "target-store-bradfordville": 60,
+      "staples-store-monroe": 60,
+      "verizon-stores": 60,
+      "gamestop-stores": 120
     },
     "headless": false,
     "jitter": 0.15,
@@ -156,13 +162,8 @@
       "method": "http",
       "url": "https://www.abt.com/Sony-PlayStation-5-Pro-Game-Console-in-White-1000050805/p/239803.html",
       "parser": "schema-offer",
-      "params": {
-        "default_seller": "Abt"
-      },
-      "allowed_sellers": [
-        "Abt",
-        "Abt Electronics"
-      ]
+      "params": { "default_seller": "Abt" },
+      "allowed_sellers": ["Abt", "Abt Electronics"]
     },
     {
       "name": "lenovo-api",
@@ -171,10 +172,7 @@
       "url": "https://openapi.lenovo.com/us/en/inventory/front/query",
       "product_url": "https://www.lenovo.com/us/en/p/accessories-and-software/game-consoles/gaming-consoles_gaming-consoles/78814903",
       "parser": "lenovo-inventory",
-      "params": {
-        "product_code": "78814903",
-        "list_price": "899.99"
-      },
+      "params": { "product_code": "78814903", "list_price": "899.99" },
       "post_body": "{\"zipCode\":\"60654\",\"inventoryMsgTranslateFlag\":true,\"viewFlag\":false,\"requestSource\":82,\"needLeadtimeFlag\":false,\"checkBestBuyMapping\":false,\"productParams\":[{\"productCode\":\"78814903\",\"productType\":\"8\",\"quantity\":1,\"activityType\":\"\",\"isOutlet\":false,\"maxCvLeadtime\":\"\",\"isPre\":false,\"subProductList\":null,\"desktopBundleFlag\":false,\"skuId\":null,\"phisicalProduct\":false,\"originProductCode\":\"\",\"preConfig\":null,\"hasGiftFlag\":false}]}",
       "headers": {
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -182,9 +180,7 @@
         "Origin": "https://www.lenovo.com",
         "Referer": "https://www.lenovo.com/us/en/p/accessories-and-software/game-consoles/gaming-consoles_gaming-consoles/78814903"
       },
-      "allowed_sellers": [
-        "Lenovo"
-      ]
+      "allowed_sellers": ["Lenovo"]
     },
     {
       "name": "antonline-page",
@@ -192,12 +188,8 @@
       "method": "browser",
       "url": "https://www.antonline.com/Sony/Electronics/Gaming_Devices/Gaming_Consoles/1512822",
       "parser": "schema-offer",
-      "params": {
-        "default_seller": "antonline"
-      },
-      "allowed_sellers": [
-        "antonline"
-      ]
+      "params": { "default_seller": "antonline" },
+      "allowed_sellers": ["antonline"]
     },
     {
       "name": "staples-page",
@@ -206,12 +198,8 @@
       "http2": true,
       "url": "https://www.staples.com/sony-ps5-pro-console-2tb-ssd-white-1000046529/product_24617563",
       "parser": "schema-offer",
-      "params": {
-        "default_seller": "Staples"
-      },
-      "allowed_sellers": [
-        "Staples"
-      ],
+      "params": { "default_seller": "Staples" },
+      "allowed_sellers": ["Staples"],
       "max_price": 909.99
     },
     {
@@ -220,12 +208,118 @@
       "method": "http",
       "url": "https://www.verizon.com/products/sony-playstation-5-pro-console-2tb/",
       "parser": "verizon-page",
-      "params": {
-        "sku": "1000046529"
-      },
-      "allowed_sellers": [
-        "Verizon"
-      ]
+      "params": { "sku": "1000046529" },
+      "allowed_sellers": ["Verizon"]
+    },
+    {
+      "name": "target-store-apalachee",
+      "retailer": "Target",
+      "store": "Tallahassee (2120 Apalachee Pkwy)",
+      "method": "http",
+      "http2": true,
+      "url": "https://redsky.target.com/redsky_aggregations/v1/web/product_fulfillment_v1?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&is_bot=false&tcin=93620188&store_id=844&zip=32301&state=FL&latitude=30.44&longitude=-84.28&scheduled_delivery_store_id=844&paid_membership=false&base_membership=false&card_membership=false&required_store_id=844&channel=WEB&page=%2Fp%2FA-93620188",
+      "product_url": "https://www.target.com/p/playstation-5-pro/-/A-93620188",
+      "parser": "target-store",
+      "params": { "store_id": "844", "list_price": "899.99" },
+      "allowed_sellers": ["Target"],
+      "headers": {
+        "Accept": "application/json",
+        "Origin": "https://www.target.com",
+        "Referer": "https://www.target.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+      }
+    },
+    {
+      "name": "target-store-fsu",
+      "retailer": "Target",
+      "store": "Tallahassee FSU (1861 W Tennessee St)",
+      "method": "http",
+      "http2": true,
+      "url": "https://redsky.target.com/redsky_aggregations/v1/web/product_fulfillment_v1?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&is_bot=false&tcin=93620188&store_id=3273&zip=32301&state=FL&latitude=30.44&longitude=-84.28&scheduled_delivery_store_id=3273&paid_membership=false&base_membership=false&card_membership=false&required_store_id=3273&channel=WEB&page=%2Fp%2FA-93620188",
+      "product_url": "https://www.target.com/p/playstation-5-pro/-/A-93620188",
+      "parser": "target-store",
+      "params": { "store_id": "3273", "list_price": "899.99" },
+      "allowed_sellers": ["Target"],
+      "headers": {
+        "Accept": "application/json",
+        "Origin": "https://www.target.com",
+        "Referer": "https://www.target.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+      }
+    },
+    {
+      "name": "target-store-bradfordville",
+      "retailer": "Target",
+      "store": "Tallahassee North (3700 Bradfordville Rd)",
+      "method": "http",
+      "http2": true,
+      "url": "https://redsky.target.com/redsky_aggregations/v1/web/product_fulfillment_v1?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&is_bot=false&tcin=93620188&store_id=1973&zip=32301&state=FL&latitude=30.44&longitude=-84.28&scheduled_delivery_store_id=1973&paid_membership=false&base_membership=false&card_membership=false&required_store_id=1973&channel=WEB&page=%2Fp%2FA-93620188",
+      "product_url": "https://www.target.com/p/playstation-5-pro/-/A-93620188",
+      "parser": "target-store",
+      "params": { "store_id": "1973", "list_price": "899.99" },
+      "allowed_sellers": ["Target"],
+      "headers": {
+        "Accept": "application/json",
+        "Origin": "https://www.target.com",
+        "Referer": "https://www.target.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+      }
+    },
+    {
+      "name": "staples-store-monroe",
+      "retailer": "Staples",
+      "store": "Tallahassee (2241 N Monroe St)",
+      "method": "http",
+      "http2": true,
+      "url": "https://www.staples.com/cc/api/omni/pickupinstore",
+      "product_url": "https://www.staples.com/sony-ps5-pro-console-2tb-ssd-white-1000046529/product_24617563",
+      "parser": "staples-store",
+      "params": { "store_number": "1072", "list_price": "906.99" },
+      "allowed_sellers": ["Staples"],
+      "max_price": 909.99,
+      "post_body": "{\"itemIds\":[\"24617563\"],\"searchParam\":\"32303\",\"radius\":\"50\",\"tenantId\":\"StaplesDotCom\",\"locale\":\"en-US\",\"immediatePickupOnly\":false,\"isSTS\":false,\"action\":\"changeStore\",\"yourStore\":{\"storeNumber\":\"1072\"},\"pickStore\":\"\",\"zipCode\":\"32303\",\"city\":\"Tallahassee\",\"state\":\"FL\"}",
+      "headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": "https://www.staples.com",
+        "Referer": "https://www.staples.com/sony-ps5-pro-console-2tb-ssd-white-1000046529/product_24617563"
+      }
+    },
+    {
+      "name": "verizon-stores",
+      "retailer": "Verizon",
+      "store": "Tallahassee area (7 stores within 25 mi)",
+      "method": "http",
+      "http2": true,
+      "url": "https://www.verizon.com/soe/digital/prospect/shippinghandlingservice/ispu/nse/checkInStoreAvailability",
+      "product_url": "https://www.verizon.com/products/sony-playstation-5-pro-console-2tb/",
+      "parser": "verizon-stores",
+      "params": { "list_price": "699.99" },
+      "allowed_sellers": ["Verizon"],
+      "post_body": "{\"data\":{\"zipCode\":\"32301\",\"longitude\":-84.2807,\"latitude\":30.4383,\"range\":25,\"rangeMiles\":25,\"category\":\"Accessory\",\"deviceId\":\"acc20893546\",\"responseType\":\"sku\",\"includeInputSku\":false,\"sku\":\"1000046529\",\"prodIds\":[\"acc20893546\"],\"sorIds\":[\"1000046529\"]}}",
+      "headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "channelId": "VZW-DOTCOM",
+        "ngd": "true",
+        "nse_prospectFlow": "true",
+        "api-initiator": "client",
+        "pageName": "sony-playstation-5-pro-console-2tb",
+        "Origin": "https://www.verizon.com",
+        "Referer": "https://www.verizon.com/products/sony-playstation-5-pro-console-2tb/"
+      }
+    },
+    {
+      "name": "gamestop-stores",
+      "retailer": "GameStop",
+      "store": "Tallahassee (2 stores within 30 mi)",
+      "method": "browser",
+      "url": "https://www.gamestop.com/consoles-hardware/playstation-5/consoles/products/sony-playstation-5-pro-console/20015604.html",
+      "parser": "gamestop-stores",
+      "settle_ms": 3000,
+      "page_fetch": "https://www.gamestop.com/on/demandware.store/Sites-gamestop-us-Site/default/Stores-FindStores?hasCondition=true&hasVariantsAvailableForPickup=true&source=pdp&showMap=false&products=416188:1&radius=30&postalCode=32301",
+      "params": { "list_price": "899.99" },
+      "allowed_sellers": ["GameStop"]
     }
   ],
   "profiles": {
@@ -248,6 +342,15 @@
         "gamestop-page": { "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 6 } },
         "newegg-page": { "ramp": { "intervals_seconds": [300, 120, 60, 30], "samples_per_step": 6 } }
       }
+    }
+  },
+  "proxies": {
+    "targets": {
+      "target-store-apalachee": "rotate",
+      "target-store-fsu": "rotate",
+      "target-store-bradfordville": "rotate",
+      "staples-store-monroe": "rotate",
+      "verizon-stores": "rotate"
     }
   }
 }

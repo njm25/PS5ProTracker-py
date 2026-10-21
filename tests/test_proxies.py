@@ -47,6 +47,7 @@ def test_rotate_sticky_and_rest():
     assert p.pick("W", "s", sticky=True) != first  # moved on
     assert p.pick("Other", "o", sticky=True) is not None  # the rest is per retailer
     assert first in p.available("Other") and first not in p.available("W")
+    p.rests["W"][first.label].until = 0  # its rest ran out; blocked again
     assert p.block("W", first, "again") == 60  # doubles, capped at the max
 
     for q in p.proxies:
@@ -120,3 +121,13 @@ def test_past_the_daily_cap_proxied_targets_go_direct(proxied):
 async def _ok(n, text):
     n.sent.append(text)
     return True
+
+
+def test_targets_at_one_retailer_take_turns_and_share_a_block():
+    p = pool()
+    picks = [p.pick("Target", name, sticky=False).label for name in ("a", "b", "c")]
+    assert len(set(picks)) == 3  # three stores, three different proxies
+    q = p.proxies[0]
+    assert p.block("Target", q, "x") == 30
+    assert p.block("Target", q, "x") == 30  # a sibling hitting the same rest doesn't double it
+    assert p.rests["Target"][q.label].strikes == 1

@@ -27,6 +27,7 @@
           <td><input type="checkbox" name="on_{{ t.name }}" {{ checked('on_' ~ t.name, on) }} aria-label="watch {{ t.name }}"></td>
           <td><a href="{{ url_for('retailers.detail', name=t.name) }}">{{ t.name }}</a>
             <div class="show-sm muted" style="font-size:12px">{{ t.retailer }} · {{ t.method }}</div>
+            {% if t.store %}<div style="font-size:12px">In store: {{ t.store }}</div>{% endif %}
             {% if not t.enabled %}<div class="muted" style="font-size:12px">off for probe runs</div>{% endif %}</td>
           <td class="hide-sm">{{ t.retailer }}</td>
           <td class="hide-sm mono" style="font-size:12px">{{ t.method }}</td>

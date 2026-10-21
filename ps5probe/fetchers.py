@@ -91,9 +91,14 @@ class HttpFetcher:
 class BrowserHost:
     """One Chromium process shared by every browser target."""
 
+    # Page loads at once. Each one spikes a renderer by a few hundred MB, and on a small VM several
+    # together pushed Chromium into swap, where it froze (2026-10-20).
+    LOADS_AT_ONCE = 2
+
     def __init__(self, options: Options):
         self._headless = options.headless
         self._lock = asyncio.Lock()
+        self.slots = asyncio.Semaphore(self.LOADS_AT_ONCE)
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
 
@@ -118,6 +123,17 @@ class BrowserHost:
             await context.route("**/*", _skip_heavy)
         return context
 
+    async def relaunch(self) -> None:
+        """Drops a browser that stopped answering; the next new_context starts a fresh one."""
+        async with self._lock:
+            browser, self._browser = self._browser, None
+        if browser is not None:
+            try:
+                async with asyncio.timeout(15):
+                    await browser.close()
+            except (TimeoutError, PlaywrightError):
+                pass
+
     async def close(self) -> None:
         if self._browser is not None:
             await self._browser.close()
@@ -131,6 +147,7 @@ class BrowserFetcher:
     # A tab reused for hours grows to most of a GB; a fresh tab every so often (same context,
     # so cookies stay) keeps it small.
     PAGE_REUSES = 20
+    DEADLINE_SLACK = 10  # seconds on top of two page loads and the settle time
 
     def __init__(self, host: BrowserHost, options: Options, proxy: Proxy | None = None):
         self._host = host
@@ -140,6 +157,7 @@ class BrowserFetcher:
         self._page: Page | None = None
         self._uses = 0
         self._bytes = 0
+        self._loaded = False  # page_fetch: the product page is open in this tab
 
     def _new_page_counted(self, page: Page) -> Page:
         def count(resp) -> None:
@@ -151,18 +169,39 @@ class BrowserFetcher:
         return page
 
     async def fetch(self, target: Target) -> FetchResult:
-        start = time.perf_counter()
+        # Every Playwright call can hang when Chromium is starved, not just the page load, so the whole
+        # check gets a deadline: two page loads, the settle time and some slack.
+        deadline = self._timeout_ms * 2 / 1000 + target.settle_ms / 1000 + self.DEADLINE_SLACK
+        async with self._host.slots:
+            start = time.perf_counter()
+            try:
+                async with asyncio.timeout(deadline):
+                    return await self._fetch(target, start)
+            except TimeoutError:
+                pass
+        # The tab or the whole browser is stuck: drop both so the next check starts clean.
+        try:
+            async with asyncio.timeout(10):
+                await self.close()
+        except TimeoutError:
+            self._context = self._page = None
+        await self._host.relaunch()
+        return FetchResult(None, _ms_since(start), "", target.url, timed_out=True, error="browser stopped responding")
+
+    async def _fetch(self, target: Target, start: float) -> FetchResult:
         try:
             if self._page is not None and self._uses >= self.PAGE_REUSES:
                 await self._page.close()
                 self._page = self._new_page_counted(await self._context.new_page())
-                self._uses = 0
+                self._uses, self._loaded = 0, False
             if self._page is None:
                 self._context = await self._host.new_context(self._proxy)
                 self._page = self._new_page_counted(await self._context.new_page())
-                self._uses = 0
+                self._uses, self._loaded = 0, False
                 start = time.perf_counter()
             self._bytes = 0
+            if target.page_fetch:
+                return await self._page_fetch(target, start)
             self._uses += 1
             page = self._page
 
@@ -177,9 +216,14 @@ class BrowserFetcher:
             else:
                 await page.wait_for_timeout(target.settle_ms)
 
-            html = await page.content()
+            html, final_url = await page.content(), page.url
+            try:
+                # Leave the page: its scripts keep running (and growing) between checks otherwise. Cookies stay.
+                await page.goto("about:blank")
+            except PlaywrightError:
+                pass
             headers = pick_headers(resp.headers.items()) if resp is not None else {}
-            return FetchResult(resp.status if resp is not None else None, nav_ms, html, page.url, headers=headers,
+            return FetchResult(resp.status if resp is not None else None, nav_ms, html, final_url, headers=headers,
                                bytes=max(self._bytes, len(html)))
         except PlaywrightTimeout:
             return FetchResult(None, _ms_since(start), "", target.url, timed_out=True, error="navigation timeout")
@@ -188,6 +232,25 @@ class BrowserFetcher:
             error = str(ex).split("\n")[0]
             return FetchResult(None, _ms_since(start), "", target.url,
                                error=self._proxy.redact(error) if self._proxy else error)
+
+    async def _page_fetch(self, target: Target, start: float) -> FetchResult:
+        page = self._page
+        self._uses += 1
+        if not self._loaded:
+            resp = await page.goto(target.url, wait_until="domcontentloaded", timeout=self._timeout_ms)
+            if resp is None or resp.status >= 400:
+                html = await page.content()  # the bot check, most likely: let detect() see it
+                return FetchResult(resp.status if resp else None, _ms_since(start), html, page.url, bytes=self._bytes)
+            await page.wait_for_timeout(target.settle_ms)
+            self._loaded = True
+        start = time.perf_counter()
+        status, body = await page.evaluate(
+            """async ([u, ms]) => { const r = await fetch(u, {headers: {'X-Requested-With': 'XMLHttpRequest'},
+                                                               signal: AbortSignal.timeout(ms)});
+                                     return [r.status, await r.text()]; }""", [target.page_fetch, self._timeout_ms])
+        if status >= 400:
+            self._loaded = False  # reload the page next time; its session may have gone stale
+        return FetchResult(status, _ms_since(start), body, target.page_fetch, bytes=self._bytes + len(body))
 
     async def close(self) -> None:
         context, self._context, self._page = self._context, None, None

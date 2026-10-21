@@ -23,6 +23,7 @@ import os
 import random
 import signal
 import sys
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
@@ -45,6 +46,8 @@ from .parsers import PARSERS, safe_parse
 from .proxies import Pool, Proxy, download, read_cache, save_cache
 
 RELOADED_ENV = "PS5_PROBE_MONITOR_RELOADED"
+# A reload that hasn't restarted by now (a frozen browser can hang the shutdown) restarts anyway.
+RELOAD_DEADLINE = 90
 CHECK_DAYS = 14
 PAUSED_FOREVER = 1e12  # "pause" with no minutes
 
@@ -82,6 +85,7 @@ class TargetState:
     next_check: float | None = None
     paused_until: float = 0
     proxy: str | None = None  # ip:port of the last check's proxy, if any
+    store: str | None = None  # in-store checks: which store(s)
     # Kept across restarts (with the last signal above):
     signal_key: str | None = None
     alerting: bool = False
@@ -118,7 +122,7 @@ class Monitor:
         self.targets: list[Target] = [by_name[n.lower()] for n in options.monitor.targets]
         intervals = {n.lower(): s for n, s in options.monitor.targets.items()}
         self.states = {
-            t.name: TargetState(t.name, t.retailer, intervals[t.name.lower()], t.product_url or t.url)
+            t.name: TargetState(t.name, t.retailer, intervals[t.name.lower()], t.product_url or t.url, store=t.store)
             for t in self.targets
         }
         self.cooldowns = {t.retailer: Cooldown() for t in self.targets} | {t.name: Cooldown() for t in self.targets}
@@ -248,11 +252,12 @@ class Monitor:
             task.cancel()
         # Loops also exit by themselves once _stop is set; never let one stuck task block a reload.
         await asyncio.wait(tasks, timeout=30)
-        # Newest first, so tabs close before the browser does; Playwright can hang on close, so cap each.
+        # Newest first, so tabs close before the browser does; Playwright can hang on close, so cap them.
+        closing_by = time.monotonic() + 30
         for close in reversed(self._closers):
             closing = asyncio.ensure_future(close())
             try:
-                done, _ = await asyncio.wait({closing}, timeout=10)
+                done, _ = await asyncio.wait({closing}, timeout=max(1.0, min(10, closing_by - time.monotonic())))
                 if not done:
                     closing.cancel()
                     say("monitor", "close timed out; moving on")
@@ -277,9 +282,12 @@ class Monitor:
             await self._notify("config", f"{t.name} skipped: {reason}", target=t.name,
                                title="Monitor config", color=AMBER)
             return
-        # After a restart or reload, don't check sooner than the interval allows.
+        # After a restart or reload, don't check sooner than the interval allows. A new target starts at a
+        # random point in its first interval, so targets added together don't all fire in the same second.
         if st.last_check and (wait := st.last_check + st.interval - time.time()) > 0:
             await self._nap(st, wait)
+        elif not st.last_check:
+            await self._nap(st, random.uniform(0, min(st.interval, 30)))
         while not self._stop.is_set():
             proxied = bool(mode) and not await self._over_budget()
             # A retailer-wide cooldown is about our own IP; through proxies, the pool's per-proxy rests apply.
@@ -426,7 +434,15 @@ class Monitor:
     async def _signal_events(self, t: Target, st: TargetState, parse: ParseResult, eligible: bool,
                              changed: bool, old: tuple) -> None:
         link = t.product_url or t.url
-        if eligible and not st.alerting:
+        if eligible and not st.alerting and t.store:
+            st.last_alert = time.time()
+            await self._notify(
+                "alert", f"In stock IN STORE at {t.retailer}, {t.store}: {parse.raw_signal}. "
+                         f"Store stock can be off, so call or go soon. {link}", target=t.name,
+                ping=True, title=f"PS5 Pro IN STORE: {t.retailer} {t.store}", url=link, color=GREEN,
+                fields={"Target": t.name, "Signal": parse.raw_signal},
+            )
+        elif eligible and not st.alerting:
             st.last_alert = time.time()
             await self._notify(
                 "alert", f"In stock at {parse.seller} for ${parse.price}. Go buy it: {link}", target=t.name,
@@ -435,7 +451,7 @@ class Monitor:
             )
         elif st.alerting and not eligible:
             await self._notify("gone", f"No longer meets the alert rule: {st.alert_reason}.", target=t.name,
-                               title=f"{t.retailer}: stock gone", url=link, color=RED)
+                               title=f"{t.retailer}{' ' + t.store if t.store else ''}: stock gone", url=link, color=RED)
         elif changed and self.options.discord.notify_changes:
             was = f"in_stock={old[0]} [{old[1]}] {old[2]} ${old[3]}"
             now = f"in_stock={parse.in_stock} [{parse.raw_signal}] {parse.seller} ${parse.price}"
@@ -533,6 +549,9 @@ class Monitor:
             if mtimes() != before:
                 say("monitor", "code or config changed: reloading")
                 self.reload = True
+                backstop = threading.Timer(RELOAD_DEADLINE, _restart)
+                backstop.daemon = True
+                backstop.start()
                 self._stop.set()
                 return
 
@@ -581,6 +600,12 @@ def main(options: Options) -> int:
     monitor = Monitor(options)
     asyncio.run(monitor.run())
     if monitor.reload:
-        os.execve(sys.executable, [sys.executable, "-u", "-m", "ps5probe", "--monitor"],
-                  {**os.environ, RELOADED_ENV: "1"})
+        _restart()
     return 0
+
+
+def _restart() -> None:
+    """Replaces this process with a fresh monitor (same PID, so systemd doesn't notice)."""
+    sys.stdout.flush()
+    os.execve(sys.executable, [sys.executable, "-u", "-m", "ps5probe", "--monitor"],
+              {**os.environ, RELOADED_ENV: "1"})

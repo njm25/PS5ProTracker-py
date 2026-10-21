@@ -49,6 +49,7 @@
     <div class="panel-pad">
       <dl class="kv">
         <dt>Interval</dt><dd>every {{ t.interval|duration }}</dd>
+        {% if target and target.store %}<dt>Store</dt><dd>{{ target.store }}</dd>{% endif %}
         <dt>Method</dt><dd class="mono">{{ target.method if target else '?' }}</dd>
         {% set pm = m.proxy_modes.get(t.name) %}
         <dt>Connection</dt><dd>{{ {'rotate': 'rotating proxies', 'sticky': 'one proxy at a time'}.get(pm, 'direct') }}{% if pm and t.raw.get('proxy') %} · last via <span class="mono">{{ t.raw.proxy }}</span>{% endif %}</dd>

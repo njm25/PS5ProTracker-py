@@ -148,8 +148,9 @@ class Pool:
                 current = min(free, key=lambda p: self.stats.get(p.label, ProxyStats()).last_used)
                 self._sticky[target] = current.label
             return current
-        turn = self._turn.get(target, -1) + 1
-        self._turn[target] = turn
+        # Turns are per retailer, so several targets at one retailer (e.g. three stores) never share a proxy at once.
+        turn = self._turn.get(retailer, -1) + 1
+        self._turn[retailer] = turn
         return free[turn % len(free)]
 
     def record(self, retailer: str, p: Proxy, nbytes: int, ok: bool, error: str | None = None) -> bool:
@@ -178,6 +179,8 @@ class Pool:
     def block(self, retailer: str, p: Proxy, reason: str, count: bool = True) -> int:
         """Rests p for this retailer; returns the minutes."""
         rest = self._rest(retailer, p)
+        if rest.until > time.time():
+            return round((rest.until - time.time()) / 60)  # already resting: a sibling target hit it too
         rest.strikes += 1
         rest.fails = 0
         minutes = min(self.cooldown_minutes * 2 ** (rest.strikes - 1), self.max_cooldown_minutes)

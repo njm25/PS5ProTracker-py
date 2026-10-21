@@ -100,6 +100,19 @@ sudo systemctl daemon-reload && sudo systemctl enable --now ps5probe-monitor
 journalctl -u ps5probe-monitor -f
 ```
 
+### In-store checks (Tallahassee)
+
+Targets with a `store` label check stock at specific local stores; they get their own "In store" panel on the dashboard and their own alert ("PS5 Pro IN STORE: Target Tallahassee (…)"). Turn them on/off and set intervals in Settings like any target. The store APIs carry no price, so `params.list_price` stands in. Store stock is a hint, not a promise (Target holds a safety buffer; stores may not show a console until it's on the shelf).
+
+| Target | Source | Stores |
+|---|---|---|
+| `target-store-*` | redsky `product_fulfillment_v1` (public key), one call per store, through proxies | 844 Apalachee Pkwy, 3273 W Tennessee (FSU), 1973 Bradfordville Rd |
+| `staples-store-monroe` | `POST /cc/api/omni/pickupinstore`; `deliveryType=ISP` = on the shelf | 1072 N Monroe St |
+| `verizon-stores` | `POST …/ispu/nse/checkInStoreAvailability`, every store within 25 mi in one call | 7 (corporate + authorized) |
+| `gamestop-stores` | `Stores-FindStores` for SKU 416188 (New), fetched from inside the product page (`page_fetch`; Cloudflare blocks it otherwise) | Governor Sq, W Tennessee St |
+
+Not possible from here (10-20): Walmart (blocked from the VM and the proxies), Best Buy (its store endpoint answers "Sold Out" for any SKU), Sam's Club (switching club gets a robot check). Target's PerimeterX blocks our default Chrome 141 user agent on redsky, so those targets send Chrome 140.
+
 ### Proxies
 
 Settings → Proxies takes a list URL (e.g. Webshare's download link: one `ip:port:user:pass` per line; kept in `config.local.json`). The monitor caches the list in `runs/.monitor/proxies.json` (mode 600) and re-downloads it every `refresh_hours`. Each target picks **Direct**, **Rotate** (a different proxy per check; HTTP targets) or **Same proxy** (keeps one, so cookies stay consistent, until it's blocked). Through a proxy, a block rests only that proxy for that retailer (`proxies.cooldown_minutes`, doubling), three failures in a row rest it too, and the retailer keeps being checked through the others. A proxied browser skips images, fonts and video. The System page shows each proxy's checks, blocks, MB today and rests.

@@ -62,9 +62,11 @@
 </div>
 
 <div class="split section">
-  {# --- retailer cards --- #}
+  {% set stores = m.targets|selectattr("store")|list %}
+  <div>
+  {# --- retailer cards (online) --- #}
   <div class="grid cards">
-    {% for t in m.targets %}
+    {% for t in m.targets|rejectattr("store") %}
     <article class="card {{ t.kind }}">
       <div class="card-top">
         <div class="card-title">
@@ -99,6 +101,27 @@
     {% else %}
     <div class="panel panel-pad muted">No monitor state yet. Is the monitor service running?</div>
     {% endfor %}
+  </div>
+
+  {# --- in-store checks: one compact row per store --- #}
+  {% if stores %}
+  <section class="panel section">
+    <div class="panel-head"><h2>In store</h2><span class="muted">{{ stores|selectattr("kind", "equalto", "instock")|list|length }} of {{ stores|length }} with stock</span></div>
+    <ul class="store-list">
+      {% for t in stores %}
+      <li class="store-row {{ t.kind }}">
+        <div class="store-name"><a href="{{ url_for('retailers.detail', name=t.name) }}"><b>{{ t.retailer }}</b></a>
+          <span class="muted">{{ t.store }}</span></div>
+        <span class="pill {{ t.kind }}">{{ t.label }}</span>
+        <div class="store-signal mono" title="{{ t.raw_signal or t.error or '' }}">{{ t.raw_signal or t.error or '' }}</div>
+        <div class="store-meta muted">{{ t.last_check|ago }} · every {{ t.interval|duration }}</div>
+        <button class="btn sm" hx-post="{{ url_for('api.command') }}" hx-vals='{"cmd": "check_now", "target": "{{ t.name }}"}'
+                {{ 'disabled' if t.kind == 'cooldown' }}>Check</button>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
   </div>
 
   {# --- activity --- #}

@@ -60,6 +60,11 @@ class Target:
     # Seller names (as the parser reports them) that count as the retailer itself.
     allowed_sellers: list[str] = field(default_factory=list)
     ramp: Ramp = field(default_factory=Ramp)
+    # An in-store check: which store(s), for alerts and the UI, e.g. "Tallahassee (2120 Apalachee Pkwy)".
+    store: str | None = None
+    # Browser only: after loading url, fetch this URL from inside the page (same cookies, past the bot
+    # check) and parse that response instead of the page. The page itself reloads every PAGE_REUSES checks.
+    page_fetch: str | None = None
     # Browser only: selector to wait for after DOMContentLoaded (up to settle_ms).
     wait_for_selector: str | None = None
     settle_ms: int = 3000

@@ -1,6 +1,8 @@
 """Minimal fixtures shaped like what each site returned on 2026-10-15."""
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -259,3 +261,54 @@ def test_a_target_can_raise_its_own_max_price():
     r = ParseResult(True, True, "jsonld=InStock", "Staples", Decimal("906.99"), "New")
     assert not evaluate(r, Target(allowed_sellers=["Staples"]), MAX_PRICE).eligible
     assert evaluate(r, Target(allowed_sellers=["Staples"], max_price=Decimal("909.99")), MAX_PRICE).eligible
+
+
+# --- in-store checks, from real responses (2026-10-20) ---
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def fixture(name):
+    return (FIXTURES / name).read_text()
+
+
+def store_target(parser, **params):
+    return Target(name="s", parser=parser, store="Tallahassee", params={"list_price": "899.99", **params},
+                  allowed_sellers=["Target", "Staples", "Verizon", "GameStop"])
+
+
+def test_target_store_out_and_in():
+    t = store_target("target-store", store_id="844")
+    r = run("target-store", fixture("target-store-844.json"), t)
+    assert (r.signal_found, r.in_stock, r.raw_signal) == (True, False, "in_store=OUT_OF_STOCK; pickup=UNAVAILABLE; qty=0")
+    stocked = fixture("target-store-844.json").replace('"in_store_only": {"availability_status": "OUT_OF_STOCK"}',
+                                                         '"in_store_only": {"availability_status": "LIMITED_STOCK"}')
+    r = run("target-store", stocked, t)
+    assert r.in_stock and evaluate(r, t, MAX_PRICE).eligible
+    assert not run("target-store", fixture("target-store-844.json"), store_target("target-store", store_id="1")).signal_found
+
+
+def test_staples_store_shelf_stock_vs_ship_to_store():
+    t = store_target("staples-store", store_number="1072")
+    r = run("staples-store", fixture("staples-store-paper.json"), t)  # copy paper: 33 on the shelf
+    assert (r.in_stock, r.raw_signal) == (True, "deliveryType=ISP; qty=33")
+    sts = fixture("staples-store-paper.json").replace('"availableqty": 33', '"availableqty": 0').replace('"ISP"', '"STS"')
+    assert run("staples-store", sts, t).in_stock is False
+
+
+def test_verizon_stores_any_store_with_quantity():
+    t = store_target("verizon-stores")
+    r = run("verizon-stores", fixture("verizon-stores.json"), t)
+    assert (r.in_stock, r.raw_signal) == (False, "stores with stock: none (of 7)")
+    body = json.loads(fixture("verizon-stores.json"))
+    body["stores"][1]["items"]["item"][0]["quantity"] = 2
+    r = run("verizon-stores", json.dumps(body), t)
+    assert r.in_stock and r.raw_signal.startswith("stores with stock: Cellular Sales Tallahassee N Monroe St (")
+
+
+def test_gamestop_stores_lists_only_stores_with_stock():
+    t = store_target("gamestop-stores")
+    r = run("gamestop-stores", fixture("gamestop-stores-preowned.json"), t)  # a Pre-Owned unit at 6613
+    assert r.in_stock and r.raw_signal.startswith("stores with stock: SWM Capital West (4256 W TENNESSEE ST)")
+    assert run("gamestop-stores", '{"stores": []}', t).raw_signal == "stores with stock: none"
+    assert not run("gamestop-stores", "<html>blocked</html>", t).signal_found

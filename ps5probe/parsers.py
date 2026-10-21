@@ -246,6 +246,86 @@ def verizon_page(body: str, t: Target) -> ParseResult:
     )
 
 
+# --- in-store checks: stock at specific local stores. The APIs carry no price, so params.list_price stands in. ---
+
+_STORE_OUT = {"UNAVAILABLE", "OUT_OF_STOCK", "NOT_SOLD_IN_STORE"}
+
+
+def _store_result(t: Target, seller: str, in_stock: bool, signal: str) -> ParseResult:
+    return ParseResult(True, in_stock, signal, seller, as_price(t.params.get("list_price")), "New")
+
+
+@parser("target-store")
+def target_store(body: str, t: Target) -> ParseResult:
+    """Target's redsky product_fulfillment_v1 for one store (params.store_id).
+
+    store_options[] gives in_store_only / order_pickup statuses and location_available_to_promise_quantity.
+    Only UNAVAILABLE and OUT_OF_STOCK were seen (10-20); anything else, or a quantity, counts as stock.
+    """
+    store_id = t.param("store_id")
+    options = get(parse_json(body), "data", "product", "fulfillment", "store_options")
+    store = next((o for o in items(options) if as_str(get(o, "location_id")) == store_id), None)
+    if store is None:
+        return ParseResult.not_found(f"no store_options for store {store_id}")
+    in_store = as_str(get(store, "in_store_only", "availability_status"))
+    pickup = as_str(get(store, "order_pickup", "availability_status"))
+    qty = get(store, "location_available_to_promise_quantity") or 0
+    if in_store is None and pickup is None:
+        return ParseResult.not_found("no store statuses")
+    stocked = qty > 0 or any(s not in _STORE_OUT for s in (in_store, pickup) if s)
+    return _store_result(t, "Target", stocked, f"in_store={in_store}; pickup={pickup}; qty={qty:g}")
+
+
+@parser("staples-store")
+def staples_store(body: str, t: Target) -> ParseResult:
+    """Staples' pick-up-in-store check (POST /cc/api/omni/pickupinstore) for params.store_number.
+
+    deliveryType ISP ("Ready in 30 mins") with availableqty > 0 is stock on the shelf; STS is ship-to-store.
+    """
+    root = parse_json(body)
+    number = t.param("store_number")
+    stores = [s for d in items(get(root, "pickInStoreDetails")) for s in items(get(d, "store"))]
+    store = next((s for s in stores if as_str(get(s, "storeNumber")) == number), None)
+    if store is None:
+        if get(root, "success") is True and get(root, "pickInStoreDetails") is not None:
+            return _store_result(t, "Staples", False, f"store {number} not listed")
+        return ParseResult.not_found("no pickInStoreDetails")
+    qty, kind = get(store, "availableqty") or 0, as_str(get(store, "deliveryType"))
+    return _store_result(t, "Staples", kind == "ISP" or qty > 0, f"deliveryType={kind}; qty={qty}")
+
+
+def _named(names: list[str]) -> str:
+    return "stores with stock: " + ("; ".join(names) if names else "none")
+
+
+@parser("verizon-stores")
+def verizon_stores(body: str, t: Target) -> ParseResult:
+    """Verizon's in-store availability (POST .../ispu/nse/checkInStoreAvailability): every store in range at once.
+
+    stores[].items.item[].quantity > 0 is what the site's own code treats as available.
+    """
+    stores = get(parse_json(body), "stores")
+    if not isinstance(stores, list):
+        return ParseResult.not_found("no stores list")
+    stocked = [f"{as_str(get(s, 'storeName'))} ({as_str(get(s, 'address1'))})" for s in stores
+               if any((get(i, "quantity") or 0) > 0 for i in items(get(s, "items", "item")))]
+    return _store_result(t, "Verizon", bool(stocked), f"{_named(stocked)} (of {len(stores)})")
+
+
+@parser("gamestop-stores")
+def gamestop_stores(body: str, t: Target) -> ParseResult:
+    """GameStop's Stores-FindStores for one SKU: lists only stores within the radius that have it.
+
+    Fetched from inside the product page (Cloudflare blocks it otherwise); see Target.page_fetch.
+    """
+    stores = get(parse_json(body), "stores")
+    if not isinstance(stores, list):
+        return ParseResult.not_found("no stores list")
+    stocked = [f"{(as_str(get(s, 'name')) or '').strip()} ({as_str(get(s, 'address1'))})" for s in stores
+               if get(s, "isInStock") is not False]
+    return _store_result(t, "GameStop", bool(stocked), _named(stocked))
+
+
 @parser("gamestop-page")
 def gamestop_page(body: str, t: Target) -> ParseResult:
     """GameStop: one page holds New, Pre-Owned and Refurbished.
